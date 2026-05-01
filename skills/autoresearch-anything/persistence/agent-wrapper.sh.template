@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# agent-wrapper.sh - Wrapper for launchd-managed autoresearch pipeline
+# Handles crash counting, environment loading, rate limit detection, and respawn
+# Usage: agent-wrapper.sh <pipeline_name> <project_path>
+#
+# Lifecycle:
+#   1. launchd starts this script
+#   2. We create a tmux session and run claude inside it (provides PTY)
+#   3. Claude bootstraps, creates /loop crons, runs experiments until timeout
+#   4. Timer kills the tmux session, wrapper exits, launchd respawns fresh
+#
+# Attach to the agent: tmux attach -t autoresearch-<pipeline_name>
+
+set -euo pipefail
+
+PIPELINE="$1"
+PROJECT_PATH="$2"
+
+LOG_DIR="${PROJECT_PATH}/logs"
+CRASH_LOG="${LOG_DIR}/crashes.log"
+CRASH_COUNT_FILE="${LOG_DIR}/.crash_count_today"
+MAX_CRASHES_PER_DAY=3
+TMUX_SESSION="autoresearch-${PIPELINE}"
+
+mkdir -p "${LOG_DIR}"
+
+# Source environment file
+ENV_FILE="${PROJECT_PATH}/.env"
+if [[ -f "${ENV_FILE}" ]]; then
+    set -a
+    source "${ENV_FILE}"
+    set +a
+fi
+
+# Source user's shell profile for global env vars (PATH, API keys, etc.)
+for profile in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile" "${HOME}/.profile"; do
+    if [[ -f "${profile}" ]]; then
+        grep -E '^export ' "${profile}" 2>/dev/null | while read -r line; do
+            eval "${line}" 2>/dev/null || true
+        done
+        break
+    fi
+done
+
+# Check crash count for today
+TODAY=$(date +%Y-%m-%d)
+if [[ -f "${CRASH_COUNT_FILE}" ]]; then
+    STORED_DATE=$(cut -d: -f1 "${CRASH_COUNT_FILE}" 2>/dev/null || echo "")
+    CRASH_COUNT=$(cut -d: -f2 "${CRASH_COUNT_FILE}" 2>/dev/null || echo "0")
+else
+    STORED_DATE=""
+    CRASH_COUNT=0
+fi
+
+if [[ "${STORED_DATE}" != "${TODAY}" ]]; then
+    CRASH_COUNT=0
+fi
+
+if [[ ${CRASH_COUNT} -ge ${MAX_CRASHES_PER_DAY} ]]; then
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HALTED: ${PIPELINE} exceeded ${MAX_CRASHES_PER_DAY} crashes today." >> "${CRASH_LOG}"
+
+    # Alert via notification script
+    bash "${PROJECT_PATH}/notify.sh" "ALERT: autoresearch/${PIPELINE} halted after ${MAX_CRASHES_PER_DAY} crashes. Manual restart required." 2>/dev/null || true
+
+    sleep 86400
+    exit 1
+fi
+
+# Session duration: default 71 hours (255600s)
+# /loop crons expire at 72h, so we restart 1h before
+MAX_SESSION=$(jq -r '.max_session_seconds // 255600' "${PROJECT_PATH}/config.json" 2>/dev/null || echo "255600")
+
+STARTUP_PROMPT="You are starting a new session. Read CLAUDE.md and follow the bootstrap sequence. Read config.json and set up your crons using /loop for each entry in the crons array. Then check for existing autoresearch branches and continue where you left off."
+
+cd "${PROJECT_PATH}"
+
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) Starting autoresearch/${PIPELINE} (session cap: ${MAX_SESSION}s)" >> "${LOG_DIR}/activity.log"
+
+# Prevent Mac from sleeping
+caffeinate -is -w $$ &
+
+# Kill any stale tmux session
+tmux kill-session -t "${TMUX_SESSION}" 2>/dev/null || true
+
+# Start claude inside tmux (provides PTY for /loop crons)
+tmux new-session -d -s "${TMUX_SESSION}" \
+    "cd '${PROJECT_PATH}' && claude --dangerously-skip-permissions '${STARTUP_PROMPT}'"
+
+# Background timer: kills tmux after MAX_SESSION seconds
+(
+    sleep ${MAX_SESSION}
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) SESSION_TIMEOUT after ${MAX_SESSION}s pipeline=${PIPELINE}" >> "${CRASH_LOG}"
+    tmux kill-session -t "${TMUX_SESSION}" 2>/dev/null || true
+) &
+TIMER_PID=$!
+
+# Wait for tmux session to end
+while tmux has-session -t "${TMUX_SESSION}" 2>/dev/null; do
+    sleep 5
+done
+
+kill ${TIMER_PID} 2>/dev/null || true
+
+# Check for rate limiting
+if tail -20 "${LOG_DIR}/stderr.log" 2>/dev/null | grep -qi "rate.limit\|429\|capacity"; then
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) RATE_LIMITED pipeline=${PIPELINE}" >> "${CRASH_LOG}"
+    RATE_COUNT=$(grep -c "RATE_LIMITED" "${CRASH_LOG}" 2>/dev/null || echo "0")
+    BACKOFF=$((300 * (RATE_COUNT > 3 ? 4 : RATE_COUNT + 1)))
+    sleep ${BACKOFF}
+    exit 0
+fi
+
+# Check if this was a planned timeout or unexpected exit
+if tail -1 "${CRASH_LOG}" 2>/dev/null | grep -q "SESSION_TIMEOUT"; then
+    exit 0  # Clean exit, launchd respawns fresh
+fi
+
+# Unexpected exit
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) EXIT pipeline=${PIPELINE}" >> "${CRASH_LOG}"
+echo "${TODAY}:$((CRASH_COUNT + 1))" > "${CRASH_COUNT_FILE}"
+exit 1

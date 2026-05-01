@@ -1,0 +1,41 @@
+#!/bin/bash
+# =============================================================================
+# measure.sh - Measurement Connector
+# =============================================================================
+# Contract: This script queries your measurement platform and outputs metrics
+# in a standardized format. The agent reads this output to make keep/discard
+# decisions.
+#
+# REQUIRED OUTPUT FORMAT (exactly these lines):
+#   metric_value: <number>
+#   sample_size: <number>
+#   timestamp: <ISO-8601>
+#   experiment_id: <string>
+#
+# Example output:
+#   metric_value: 2.8
+#   sample_size: 150
+#   timestamp: 2026-03-17T08:00:00Z
+#   experiment_id: b2c3d4e
+#
+# EXIT CODES:
+#   0 = success (metric retrieved)
+#   1 = failure (could not retrieve metric)
+#
+# TODO: Your Claude Code agent will build this with you during setup.
+# It will connect to your specific measurement platform's API.
+# =============================================================================
+
+set -euo pipefail
+
+# Source environment variables
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/../.env" ]]; then
+    set -a
+    source "${SCRIPT_DIR}/../.env"
+    set +a
+fi
+
+echo "ERROR: measure.sh is not yet implemented."
+echo "Run the autoresearch-anything setup to build this connector with your Claude agent."
+exit 1

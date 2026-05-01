@@ -1,0 +1,114 @@
+# autoresearch: {{pipeline_name}}
+
+This is an autonomous experimentation pipeline. Your job is to continuously improve **{{metric_name}}** ({{metric_direction}} = better) by modifying `experiment/{{experiment_file}}`.
+
+## Setup
+
+To set up a new experiment session:
+
+1. **Agree on a session tag**: propose a tag based on today's date (e.g. `mar16`). The branch `autoresearch/{{pipeline_name}}/<tag>` must not already exist - this is a fresh session.
+2. **Create the branch**: `git checkout -b autoresearch/{{pipeline_name}}/<tag>` from the current best state.
+3. **Read the context files**: Read these files for full context:
+   - `user-knowledge.md` - foundational knowledge from the user. Do not modify.
+   - `research-findings.md` - domain research findings. Do not modify.
+   - `constraints.md` - hard rules you must always respect. Do not modify.
+   - `resource.md` - accumulated experimental learnings. You append to this.
+   - `results.tsv` - experiment history log.
+   - `experiment/{{experiment_file}}` - the file you modify.
+4. **Verify connectors work**: Run `bash connectors/measure.sh` to confirm you can read the metric. Run `bash connectors/deploy.sh --dry-run` to confirm deployment works.
+5. **Establish baseline**: If results.tsv has no baseline entry yet, deploy the current experiment file and measure it. Record as the baseline.
+6. **Begin the experiment loop.**
+
+## CONSTANTS (Do not modify)
+
+- **Metric:** {{metric_name}}
+- **Direction:** {{metric_direction}} = better
+- **Measurement source:** {{measurement_source}}
+- **Measurement window:** {{measurement_window}}
+- **Minimum sample size:** {{min_sample_size}}
+- **Improvement threshold:** {{improvement_threshold}}
+- **Fixed elements:** {{fixed_elements}}
+
+These constants create fairness between experiments. Every experiment is measured under the same conditions.
+
+## Experimentation
+
+**What you CAN do:**
+- Modify `experiment/{{experiment_file}}` - this is the only file you edit. Everything is fair game within the constraints.
+
+**What you CANNOT do:**
+- Modify `connectors/measure.sh`. It is read-only. It is the ground truth metric.
+- Modify `connectors/deploy.sh`. It is read-only. It is the fixed deployment method.
+- Modify `user-knowledge.md`, `research-findings.md`, or `constraints.md`. These are immutable knowledge files.
+- Modify `program.md` (this file) or `CLAUDE.md`.
+- Violate any constraint defined in `constraints.md`.
+
+**The goal is simple: get the {{metric_direction}} {{metric_name}}.** The measurement window is fixed, so you don't need to worry about timing - it's always {{measurement_window}}. Everything about the experiment file is fair game as long as constraints are respected.
+
+## The experiment loop
+
+The experiment runs on a dedicated branch (e.g. `autoresearch/{{pipeline_name}}/mar16`).
+
+LOOP FOREVER:
+
+1. **Read context**: Check results.tsv for what's been tried. Read resource.md for accumulated learnings. Read the knowledge files for foundational context. Check constraints.md for boundaries.
+2. **Hypothesize**: Based on ALL knowledge sources (equal weight), form a hypothesis for what change to `experiment/{{experiment_file}}` might improve {{metric_name}}. You have full freedom on what to change and how much.
+3. **Modify**: Edit `experiment/{{experiment_file}}` with your proposed change. Respect all constraints.
+4. **Commit**: `git add experiment/{{experiment_file}} && git commit -m "experiment #N: brief description of change"`
+5. **Deploy**: `bash connectors/deploy.sh`. If it fails, treat as crash (see below).
+6. **Wait**: The measurement window passes. This cycle ends here. The next loop iteration picks up after the interval.
+7. **Measure**: `bash connectors/measure.sh`. Parse `metric_value` and `sample_size` from the output.
+8. **Decide**:
+   - If {{metric_name}} improved ({{metric_direction}}, meeting threshold): **KEEP**. The commit stays. Branch advances.
+   - If {{metric_name}} is equal or worse: **DISCARD**. `git reset --hard HEAD~1`. Redeploy previous version: `bash connectors/deploy.sh`.
+9. **Log learnings** to resource.md (append only):
+   - For KEEP: `### Experiment #N - KEEP - {date}` with hypothesis, result, and insight on what worked.
+   - For DISCARD: `### Experiment #N - DISCARD - {date}` with hypothesis, result, and insight on what didn't work.
+   - For CRASH: `### Experiment #N - CRASH - {date}` with error details.
+10. **Record** in results.tsv (tab-separated): `commit  metric_value  sample_size  status  description  timestamp`
+11. **Notify**: Send experiment result via `bash notify.sh "message"`.
+12. **Update summary stats** at the top of resource.md (total experiments, keeps, discards, crashes, metric progress).
+
+## Logging results
+
+Log every experiment to `results.tsv` (tab-separated, NOT comma-separated).
+
+The TSV has a header row and 6 columns:
+
+```
+commit	metric_value	sample_size	status	description	timestamp
+```
+
+1. git commit hash (short, 7 chars) - use 0000000 for crashes
+2. metric value achieved - use 0.0 for crashes
+3. sample size - use 0 for crashes
+4. status: `baseline`, `keep`, `discard`, or `crash`
+5. short text description of what this experiment tried
+6. ISO-8601 timestamp
+
+Do NOT commit results.tsv to git - leave it untracked.
+
+## Crash handling
+
+- **Deploy failure**: Log as crash, revert (`git reset --hard HEAD~1`), redeploy previous, try different approach next cycle.
+- **Measurement failure**: Log as crash, revert, redeploy previous, try different approach.
+- **Trivial bugs** (API rate limit, temporary network issue): Wait briefly, retry once. If still fails, log as crash.
+- **Fundamental issues** (API credentials invalid, account suspended): Log as crash, alert user via notify.sh, pause loop.
+
+## Session restart
+
+On restart (crash recovery, session timeout, manual restart):
+1. Check for existing `autoresearch/{{pipeline_name}}/*` branches
+2. If found: checkout the most recent branch. Continue from where you left off.
+3. Read results.tsv and resource.md to understand current state.
+4. Resume the experiment loop.
+
+Do NOT create a new branch on restart - continue the current session.
+
+## NEVER STOP
+
+Once the experiment loop has begun (after the initial setup), do NOT pause to ask the human if you should continue. Do NOT ask "should I keep going?" or "is this a good stopping point?". The human might be asleep, or gone from a computer and expects you to continue working **indefinitely** until you are manually stopped. You are autonomous.
+
+If you run out of ideas, think harder - re-read the knowledge files for new angles, review resource.md for patterns, try combining previous near-misses, try more radical changes. The loop runs until the human interrupts you, period.
+
+As a practical example: if each experiment takes {{measurement_window}} and you run 24/7, that could be dozens of experiments per day. The user wakes up to a log of results and (hopefully) a better {{metric_name}}.

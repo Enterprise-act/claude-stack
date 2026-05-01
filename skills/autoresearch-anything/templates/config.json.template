@@ -1,0 +1,35 @@
+{
+  "pipeline_name": "{{pipeline_name}}",
+  "metric": {
+    "name": "{{metric_name}}",
+    "direction": "{{metric_direction}}",
+    "source": "{{measurement_source}}",
+    "baseline": {{baseline_value}}
+  },
+  "measurement": {
+    "window": "{{measurement_window}}",
+    "min_sample_size": {{min_sample_size}},
+    "improvement_threshold": "{{improvement_threshold}}"
+  },
+  "experiment_file": "experiment/{{experiment_file}}",
+  "deployment": {
+    "method": "{{deploy_method}}",
+    "approval_required": {{approval_required}}
+  },
+  "execution": {
+    "method": "{{execution_method}}",
+    "loop_interval": "{{loop_interval}}"
+  },
+  "notification": {
+    "channel": "{{notification_channel}}"
+  },
+  "crons": [
+    {
+      "name": "experiment-loop",
+      "interval": "{{loop_interval}}",
+      "prompt": "Run the next autoresearch experiment cycle. Read program.md and follow the experiment loop from the current state."
+    }
+  ],
+  "git_branch_prefix": "autoresearch/{{pipeline_name}}",
+  "created_at": "{{created_at}}"
+}

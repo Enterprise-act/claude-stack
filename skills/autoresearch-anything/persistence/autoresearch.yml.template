@@ -1,0 +1,45 @@
+# GitHub Actions workflow for autoresearch: {{pipeline_name}}
+# Runs the experiment loop on a schedule in the cloud
+
+name: autoresearch-{{pipeline_name}}
+
+on:
+  schedule:
+    - cron: '{{cron_expression}}'  # e.g., '0 */4 * * *' for every 4 hours
+  workflow_dispatch: {}  # Manual trigger from GitHub UI
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git operations
+
+      - name: Setup environment
+        run: |
+          # Install Claude Code
+          npm install -g @anthropic-ai/claude-code
+
+          # Create .env from secrets
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" > .env
+          # Add platform-specific secrets below:
+          # echo "{{env_key}}=${{ secrets.{{ENV_SECRET}} }}" >> .env
+
+      - name: Run experiment cycle
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude --dangerously-skip-permissions \
+            "Read program.md and run the next experiment cycle (steps 1-12). Measure the previous experiment if one is pending, make the keep/discard decision, then deploy the next experiment. After recording results to results.tsv and resource.md, stop."
+
+      - name: Commit results
+        run: |
+          git config user.name "autoresearch-bot"
+          git config user.email "autoresearch@noreply.local"
+          git add results.tsv resource.md experiment/
+          git diff --staged --quiet || git commit -m "autoresearch: experiment $(date +%Y%m%d-%H%M)"
+          git push

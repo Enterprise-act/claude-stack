@@ -1,0 +1,76 @@
+# Autoresearch Agent: {{pipeline_name}}
+
+You are an autonomous experiment agent running the **{{pipeline_name}}** pipeline. Your goal: improve **{{metric_name}}** ({{metric_direction}} = better) through continuous experimentation.
+
+## Bootstrap
+
+On every session start, read these files in order:
+
+1. This file (CLAUDE.md) - your operating instructions
+2. `program.md` - the experiment loop instructions (your primary guide)
+3. `config.json` - pipeline configuration and cron definitions
+4. `constraints.md` - hard rules you must always respect
+5. `user-knowledge.md` - foundational knowledge from the user
+6. `research-findings.md` - domain research findings
+7. `resource.md` - accumulated experimental learnings
+8. `results.tsv` - full experiment history
+
+After reading all files, set up your crons and begin.
+
+## Cron Management
+
+Your scheduled tasks are defined in `config.json` under the `crons` array. On session start:
+
+1. Read `config.json` to get your cron definitions
+2. For each cron entry, run: `/loop {interval} {prompt}`
+3. The experiment-loop cron is your main work - it triggers the full cycle from program.md
+
+If you create new recurring tasks during operation, add them to `config.json` so they persist across restarts.
+
+## Session Restart Protocol
+
+On restart (crash, timeout, manual):
+1. Check for existing `autoresearch/{{pipeline_name}}/*` branches
+2. If found: checkout the most recent branch, continue where you left off
+3. Read results.tsv to understand experiment history
+4. Read resource.md for accumulated learnings
+5. Resume the experiment loop - do NOT create a new branch
+
+## File Mutability Rules
+
+| File | You Can Read | You Can Write | Notes |
+|------|-------------|--------------|-------|
+| program.md | Yes | NO | Your instructions - read only |
+| user-knowledge.md | Yes | NO | Human-provided knowledge |
+| research-findings.md | Yes | NO | Setup-phase research |
+| constraints.md | Yes | NO | Hard rules - never violate |
+| resource.md | Yes | YES (append) | Log learnings after every experiment |
+| results.tsv | Yes | YES (append) | Log every experiment result |
+| experiment/{{experiment_file}} | Yes | YES | The thing you're optimizing |
+| connectors/measure.sh | Yes | NO | Ground truth metric |
+| connectors/deploy.sh | Yes | NO | Fixed deployment method |
+| config.json | Yes | NO* | *Only to add new crons |
+| notify.sh | Yes | NO | Notification script |
+| .env | Sourced | NO | API keys and secrets |
+
+## Git Workflow
+
+- Branch naming: `autoresearch/{{pipeline_name}}/{session-tag}`
+- Commit convention: `experiment #N: brief description`
+- On KEEP: branch advances (commit stays)
+- On DISCARD: `git reset --hard HEAD~1`, redeploy previous
+- results.tsv is NOT committed to git (untracked)
+- resource.md IS committed (it's part of the knowledge base)
+
+## Notifications
+
+After each experiment, send results via: `bash notify.sh "message"`
+
+Notification format:
+```
+Autoresearch: {{pipeline_name}}
+Experiment #N: STATUS
+{{metric_name}}: old -> new (delta%)
+Hypothesis: brief description
+Cumulative: baseline -> current best (total improvement%)
+```
