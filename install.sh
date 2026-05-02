@@ -1,10 +1,10 @@
 #!/bin/bash
 # Full Service Pros — Claude Stack Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/Enterprise-act/claude-stack/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/carrmjw/claude-stack/main/install.sh | bash
 
 set -euo pipefail
 
-REPO="https://github.com/Enterprise-act/claude-stack.git"
+REPO="https://github.com/carrmjw/claude-stack.git"
 BRANCH="main"
 CLAUDE_DIR="${HOME}/.claude"
 STACK_DIR="${CLAUDE_DIR}/fsp-stack"
@@ -99,7 +99,7 @@ for skill_src in "${STACK_DIR}/skills/"/*/; do
   [ -L "${skill_dest}" ] && { echo "  Skipping symlinked skill destination: ${safe}"; continue; }
   if [ ! -d "${skill_dest}" ] || [ -f "${skill_dest}/${FSP_MARKER_FILE}" ]; then
     rsync -a --delete --no-links --filter "protect ${FSP_MARKER_FILE}" "${skill_src}" "${skill_dest}/"
-    printf 'FSP:Enterprise-act/claude-stack\n' > "${skill_dest}/${FSP_MARKER_FILE}"
+    printf 'FSP:carrmjw/claude-stack\n' > "${skill_dest}/${FSP_MARKER_FILE}"
     printf '%s\n' "${safe}" >> "${MANIFEST_TMP}"
     SKILL_COUNT=$((SKILL_COUNT + 1))
   else
@@ -165,8 +165,10 @@ except FileNotFoundError:
     cfg = {}
 except json.JSONDecodeError:
     import shutil
-    shutil.copy2(path, path + ".bak")
-    print(f"Warning: {path} had invalid JSON — backed up to {path}.bak, starting fresh", file=sys.stderr)
+    import time
+    bak = path + ".bak." + str(int(time.time()))
+    shutil.copy2(path, bak)
+    print(f"Warning: {path} had invalid JSON — backed up to {bak}, starting fresh", file=sys.stderr)
     cfg = {}
 cfg.setdefault("mcpServers", {})
 cfg["mcpServers"]["n8n-mcp"] = {
@@ -218,7 +220,7 @@ set -euo pipefail
 for req in git rsync; do
   command -v "${req}" &>/dev/null || { echo "Error: '${req}' is required. Install it and retry."; exit 1; }
 done
-REPO="https://github.com/Enterprise-act/claude-stack.git"
+REPO="https://github.com/carrmjw/claude-stack.git"
 BRANCH="main"
 STACK_DIR="${HOME}/.claude/fsp-stack"
 SKILLS_DIR="${HOME}/.claude/skills"
@@ -227,7 +229,7 @@ FSP_MARKER_FILE=".fsp-managed"
 
 if [ ! -d "${STACK_DIR}/.git" ]; then
   echo "FSP stack not found. Run installer:"
-  echo "  curl -fsSL https://raw.githubusercontent.com/Enterprise-act/claude-stack/main/install.sh | bash"
+  echo "  curl -fsSL https://raw.githubusercontent.com/carrmjw/claude-stack/main/install.sh | bash"
   exit 1
 fi
 ACTUAL_REMOTE=$(git -C "${STACK_DIR}" remote get-url origin 2>/dev/null || echo "")
@@ -279,7 +281,7 @@ for skill_src in "${STACK_DIR}/skills/"/*/; do
   [ -L "${skill_dest}" ] && { echo "  Skipping symlinked skill destination: ${safe}"; continue; }
   if [ ! -d "${skill_dest}" ] || [ -f "${skill_dest}/${FSP_MARKER_FILE}" ]; then
     rsync -a --delete --no-links --filter "protect ${FSP_MARKER_FILE}" "${skill_src}" "${skill_dest}/"
-    printf 'FSP:Enterprise-act/claude-stack\n' > "${skill_dest}/${FSP_MARKER_FILE}"
+    printf 'FSP:carrmjw/claude-stack\n' > "${skill_dest}/${FSP_MARKER_FILE}"
     printf '%s\n' "${safe}" >> "${MANIFEST_TMP}"
   fi
 done
@@ -295,7 +297,7 @@ install_update_script() {
     echo -e "${YELLOW}⚠ ${dest} is a symlink — skipping to avoid following it${NC}"
     return 1
   fi
-  if [ -f "${dest}" ] && ! grep -q "${FSP_MARKER}" "${dest}" 2>/dev/null; then
+  if [ -f "${dest}" ] && ! grep -qxF "${FSP_MARKER}" "${dest}" 2>/dev/null; then
     echo -e "${YELLOW}⚠ ${dest} exists and is not FSP-managed — skipping to avoid overwrite${NC}"
     return 1
   fi
