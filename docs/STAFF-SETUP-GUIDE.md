@@ -44,7 +44,7 @@ This one command sets up everything: Claude Code, all 196 skills, and the update
 1. Open **Terminal**
 2. Copy and paste this entire line, then press Enter:
    ```
-   curl -fsSL https://raw.githubusercontent.com/Enterprise-act/claude-stack/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/carrmjw/claude-stack/main/install.sh | bash
    ```
 3. Wait about 2–3 minutes while it installs
 4. You'll see green checkmarks as each step completes
@@ -54,13 +54,14 @@ This one command sets up everything: Claude Code, all 196 skills, and the update
 
 ---
 
-## Step 4 — Accept the GitHub Invite
+## Step 4 — Bookmark the Team Repo
 
-You've been invited to the Full Service Pros GitHub organization. This gives you access to the team's shared tools and any future updates.
+The FSP Claude stack is hosted publicly at **[github.com/carrmjw/claude-stack](https://github.com/carrmjw/claude-stack)**. No GitHub account needed — you can browse skills and updates there any time.
 
-1. Check your work email for a message from **github.com** (subject: "You've been invited to join Enterprise-act")
-2. Click **"Join Enterprise-act"** in the email
-3. If you don't have a GitHub account yet, it will ask you to create one — use your work email, it's free
+If you want to be notified when Mark pushes new skills:
+1. Create a free GitHub account at **[github.com](https://github.com)** (use your work email)
+2. Go to **[github.com/carrmjw/claude-stack](https://github.com/carrmjw/claude-stack)**
+3. Click **Watch → All Activity** in the top-right corner
 
 ---
 
@@ -104,7 +105,7 @@ Takes about 30 seconds. Your personal settings are never touched.
 | Start Claude Code | Open Terminal → type `claude` |
 | Get latest skills | Open Terminal → type `claude-update` |
 | Claude web chat | [claude.ai](https://claude.ai) |
-| Team GitHub | [github.com/Enterprise-act](https://github.com/Enterprise-act) |
+| Team GitHub | [github.com/carrmjw/claude-stack](https://github.com/carrmjw/claude-stack) |
 | Integrations | [claude.ai/settings/integrations](https://claude.ai/settings/integrations) |
 
 ---
