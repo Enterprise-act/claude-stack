@@ -52,6 +52,24 @@ That's it. Your personal settings and CLAUDE.md are never touched.
 
 ---
 
+## Backing up your Claude setup
+
+Once you've used Claude for a while you'll have a personal fingerprint — installed skills, custom agents, memory of your projects, scheduled routines. **None of that is in iCloud or Time Machine.** If your Mac dies without a backup, it's a full afternoon to rebuild.
+
+We provide a one-command backup that uploads your Claude state to your own FSP Box folder. Run it before any big OS update or quarterly.
+
+**Setup:** [`docs/STAFF-BACKUP-GUIDE.md`](docs/STAFF-BACKUP-GUIDE.md) — non-technical walkthrough (~15 min one-time)
+**Script:** [`scripts/claude-backup.sh`](scripts/claude-backup.sh) — the backup tool itself
+
+```bash
+# After one-time setup (see guide):
+bash ~/Desktop/claude-backup.sh
+```
+
+Auth tokens and browser session data are stripped automatically. Use `--no-secrets` to also strip your `~/.claude/.env` API keys if your Box folder might be shared.
+
+---
+
 ## For Mark: pushing updates
 
 1. Add/edit skills in `skills/`
