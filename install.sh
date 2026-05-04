@@ -6,6 +6,9 @@ set -euo pipefail
 
 REPO="https://github.com/carrmjw/claude-stack.git"
 BRANCH="main"
+# Set to a known-good git SHA to pin installs to a verified commit.
+# Leave empty to track latest main (fine for onboarding; set for production).
+PINNED_SHA=""
 CLAUDE_DIR="${HOME}/.claude"
 STACK_DIR="${CLAUDE_DIR}/fsp-stack"
 SKILLS_DIR="${CLAUDE_DIR}/skills"
@@ -48,7 +51,14 @@ if [ -d "${STACK_DIR}/.git" ]; then
     exit 1
   fi
   git "${GIT_NO_HOOKS[@]}" -C "${STACK_DIR}" fetch --quiet origin "${BRANCH}"
-  if ! git "${GIT_NO_HOOKS[@]}" -C "${STACK_DIR}" merge --ff-only --quiet "origin/${BRANCH}"; then
+  if [ -n "${PINNED_SHA}" ]; then
+    FETCH_SHA=$(git -C "${STACK_DIR}" rev-parse FETCH_HEAD)
+    if [ "${FETCH_SHA}" != "${PINNED_SHA}" ]; then
+      echo "Error: fetched HEAD ${FETCH_SHA} does not match PINNED_SHA ${PINNED_SHA}. Aborting before merge."
+      exit 1
+    fi
+  fi
+  if ! git "${GIT_NO_HOOKS[@]}" -C "${STACK_DIR}" merge --ff-only --quiet FETCH_HEAD; then
     echo -e "${YELLOW}⚠ Cannot fast-forward. Run: git -C ${STACK_DIR} pull${NC}"
     exit 1
   fi
@@ -56,6 +66,23 @@ if [ -d "${STACK_DIR}/.git" ]; then
 else
   git "${GIT_NO_HOOKS[@]}" clone --quiet --branch "${BRANCH}" "${REPO}" "${STACK_DIR}"
   echo -e "${GREEN}✓ Stack cloned at $(git -C "${STACK_DIR}" rev-parse --short HEAD)${NC}"
+fi
+
+# Commit verification — PINNED_SHA should be set to a known-good git SHA before release.
+# When empty, trust is placed entirely in the GitHub repo and TLS. Warn loudly.
+ACTUAL_SHA=$(git -C "${STACK_DIR}" rev-parse HEAD)
+SHA_FILE="${CLAUDE_DIR}/.fsp-pinned-sha"
+if [ -n "${PINNED_SHA}" ]; then
+  if [ "${ACTUAL_SHA}" != "${PINNED_SHA}" ]; then
+    echo "Error: HEAD ${ACTUAL_SHA} does not match PINNED_SHA ${PINNED_SHA}. Aborting."
+    echo "Update PINNED_SHA in install.sh to the expected commit SHA."
+    exit 1
+  fi
+  echo "${ACTUAL_SHA}" > "${SHA_FILE}"
+  echo -e "${GREEN}✓ Commit verified: ${ACTUAL_SHA:0:8}${NC}"
+else
+  echo -e "${YELLOW}  ⚠ SECURITY: PINNED_SHA is unset — installing unverified code from mutable main.${NC}"
+  echo -e "${YELLOW}    Set PINNED_SHA in install.sh to a known-good SHA before distributing to staff.${NC}"
 fi
 
 # 4. Sync only FSP-managed skills — never touch user's own skills
@@ -75,8 +102,8 @@ if [ -f "${MANIFEST}" ]; then
     [ -z "${safe}" ] || [ "${safe}" != "${skill}" ] && continue  # skip unsafe names
     skill_dir="${SKILLS_DIR}/${safe}"
     [ -L "${skill_dir}" ] && continue  # skip symlinked targets
-    if [ -d "${skill_dir}" ] && [ -f "${skill_dir}/${FSP_MARKER_FILE}" ]; then
-      if ! ls "${STACK_DIR}/skills/" | grep -qx "${safe}"; then
+    if [ -d "${skill_dir}" ] && grep -qxF "FSP:carrmjw/claude-stack" "${skill_dir}/${FSP_MARKER_FILE}" 2>/dev/null; then
+      if ! ls "${STACK_DIR}/skills/" | grep -qxF -- "${safe}"; then
         echo "  Removing retired FSP skill: ${safe}"
         rm -rf "${SKILLS_DIR:?}/${safe}"
       fi
@@ -97,7 +124,7 @@ for skill_src in "${STACK_DIR}/skills/"/*/; do
   fi
   skill_dest="${SKILLS_DIR}/${safe}"
   [ -L "${skill_dest}" ] && { echo "  Skipping symlinked skill destination: ${safe}"; continue; }
-  if [ ! -d "${skill_dest}" ] || [ -f "${skill_dest}/${FSP_MARKER_FILE}" ]; then
+  if [ ! -d "${skill_dest}" ] || grep -qxF "FSP:carrmjw/claude-stack" "${skill_dest}/${FSP_MARKER_FILE}" 2>/dev/null; then
     rsync -a --delete --no-links --filter "protect ${FSP_MARKER_FILE}" "${skill_src}" "${skill_dest}/"
     printf 'FSP:carrmjw/claude-stack\n' > "${skill_dest}/${FSP_MARKER_FILE}"
     printf '%s\n' "${safe}" >> "${MANIFEST_TMP}"
@@ -112,7 +139,7 @@ echo -e "${GREEN}✓ ${SKILL_COUNT} skills installed/updated${NC}"
 
 # 5. Install plugins (exit-code based — avoids false positives from output string matching)
 PLUGIN_ERRORS=0
-for plugin in everything-claude-code openai-codex ijfw; do
+for plugin in "everything-claude-code@1.10.0" "openai-codex@1.0.4" "ijfw@1.0.0"; do
   if claude plugins install "${plugin}" >/dev/null 2>&1; then
     echo -e "${GREEN}  ✓ ${plugin}${NC}"
   else
@@ -163,13 +190,8 @@ try:
         cfg = json.load(f)
 except FileNotFoundError:
     cfg = {}
-except json.JSONDecodeError:
-    import shutil
-    import time
-    bak = path + ".bak." + str(int(time.time()))
-    shutil.copy2(path, bak)
-    print(f"Warning: {path} had invalid JSON — backed up to {bak}, starting fresh", file=sys.stderr)
-    cfg = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {path} has invalid JSON ({e}). Fix it manually before re-running.")
 cfg.setdefault("mcpServers", {})
 cfg["mcpServers"]["n8n-mcp"] = {
     "type": "http",
@@ -238,7 +260,24 @@ if [ "${ACTUAL_REMOTE}" != "${REPO}" ]; then
   exit 1
 fi
 git -c core.hooksPath=/dev/null -C "${STACK_DIR}" fetch --quiet origin "${BRANCH}"
-if ! git -c core.hooksPath=/dev/null -C "${STACK_DIR}" merge --ff-only --quiet "origin/${BRANCH}"; then
+
+# Verify FETCH_HEAD against pinned SHA before merging — check runs before any new code lands
+SHA_FILE="${HOME}/.claude/.fsp-pinned-sha"
+if [ -f "${SHA_FILE}" ]; then
+  PINNED_SHA=$(cat "${SHA_FILE}")
+  ACTUAL_SHA=$(git -C "${STACK_DIR}" rev-parse FETCH_HEAD)
+  if [ "${ACTUAL_SHA}" != "${PINNED_SHA}" ]; then
+    echo "Error: fetched HEAD ${ACTUAL_SHA} does not match pinned SHA ${PINNED_SHA}."
+    echo "If intentional, update ${SHA_FILE} with the new SHA, then re-run claude-update."
+    exit 1
+  fi
+  echo "✓ Commit verified: ${ACTUAL_SHA:0:8}"
+else
+  # No SHA file means installer ran without PINNED_SHA — accepted risk for curl|bash onboarding.
+  echo "⚠ No pinned SHA on file — update is unverified."
+fi
+
+if ! git -c core.hooksPath=/dev/null -C "${STACK_DIR}" merge --ff-only --quiet FETCH_HEAD; then
   echo "⚠ Cannot fast-forward. Run: git -C ~/.claude/fsp-stack pull"
   exit 1
 fi
@@ -258,8 +297,8 @@ if [ -f "${MANIFEST}" ]; then
     [ -z "${safe}" ] || [ "${safe}" != "${skill}" ] && continue
     skill_dir="${SKILLS_DIR}/${safe}"
     [ -L "${skill_dir}" ] && continue  # skip symlinked targets
-    if [ -d "${skill_dir}" ] && [ -f "${skill_dir}/${FSP_MARKER_FILE}" ]; then
-      if ! ls "${STACK_DIR}/skills/" | grep -qx "${safe}"; then
+    if [ -d "${skill_dir}" ] && grep -qxF "FSP:carrmjw/claude-stack" "${skill_dir}/${FSP_MARKER_FILE}" 2>/dev/null; then
+      if ! ls "${STACK_DIR}/skills/" | grep -qxF -- "${safe}"; then
         echo "  Removing retired FSP skill: ${safe}"
         rm -rf "${SKILLS_DIR:?}/${safe}"
       fi
@@ -279,7 +318,7 @@ for skill_src in "${STACK_DIR}/skills/"/*/; do
   fi
   skill_dest="${SKILLS_DIR}/${safe}"
   [ -L "${skill_dest}" ] && { echo "  Skipping symlinked skill destination: ${safe}"; continue; }
-  if [ ! -d "${skill_dest}" ] || [ -f "${skill_dest}/${FSP_MARKER_FILE}" ]; then
+  if [ ! -d "${skill_dest}" ] || grep -qxF "FSP:carrmjw/claude-stack" "${skill_dest}/${FSP_MARKER_FILE}" 2>/dev/null; then
     rsync -a --delete --no-links --filter "protect ${FSP_MARKER_FILE}" "${skill_src}" "${skill_dest}/"
     printf 'FSP:carrmjw/claude-stack\n' > "${skill_dest}/${FSP_MARKER_FILE}"
     printf '%s\n' "${safe}" >> "${MANIFEST_TMP}"
@@ -287,6 +326,20 @@ for skill_src in "${STACK_DIR}/skills/"/*/; do
 done
 shopt -u nullglob
 mv "${MANIFEST_TMP}" "${MANIFEST}"
+
+# Sync prompt-quality hook
+HOOK_SRC="${STACK_DIR}/config/hooks/fsp-prompt-quality.sh"
+HOOK_DEST="${HOME}/.claude/hooks/fsp-prompt-quality.sh"
+if [ -f "${HOOK_SRC}" ]; then
+  if [ -L "${HOOK_DEST}" ]; then
+    echo "  Skipping hook sync: ${HOOK_DEST} is a symlink"
+  else
+    mkdir -p "${HOME}/.claude/hooks"
+    cp "${HOOK_SRC}" "${HOOK_DEST}"
+    chmod +x "${HOOK_DEST}"
+  fi
+fi
+
 echo "✓ Claude Stack updated to $(git -C "${STACK_DIR}" rev-parse --short HEAD)"
 SCRIPT
 chmod +x "${TMPFILE}"
@@ -312,6 +365,65 @@ else
   if install_update_script "${HOME}/bin/claude-update"; then
     echo -e "${GREEN}✓ claude-update installed at ~/bin/claude-update${NC}"
   fi
+fi
+
+# 9. Install prompt-quality hook — injects FSP output standards on every prompt
+HOOKS_DIR="${CLAUDE_DIR}/hooks"
+HOOK_SRC="${STACK_DIR}/config/hooks/fsp-prompt-quality.sh"
+HOOK_DEST="${HOOKS_DIR}/fsp-prompt-quality.sh"
+
+mkdir -p "${HOOKS_DIR}"
+
+if [ -f "${HOOK_SRC}" ]; then
+  if [ -L "${HOOK_DEST}" ]; then
+    echo -e "${YELLOW}⚠ ${HOOK_DEST} is a symlink — skipping to avoid following it${NC}"
+  else
+    cp "${HOOK_SRC}" "${HOOK_DEST}"
+    chmod +x "${HOOK_DEST}"
+  fi
+
+  # Wire into settings.json — idempotent: skips if already registered
+  SETTINGS="${CLAUDE_DIR}/settings.json"
+  HOOK_DEST_JSON="${HOOK_DEST}" python3 - "${SETTINGS}" << 'PYEOF'
+import json, sys, os, shlex
+path = sys.argv[1]
+hook_cmd = "bash " + shlex.quote(os.environ["HOOK_DEST_JSON"])
+
+if os.path.islink(path):
+    sys.exit(f"Error: {path} is a symlink — aborting")
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+except FileNotFoundError:
+    cfg = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {path} has invalid JSON ({e}). Fix it manually before re-running.")
+
+cfg.setdefault("hooks", {})
+cfg["hooks"].setdefault("UserPromptSubmit", [])
+
+# Collect all existing hook commands to check for duplicates
+existing_cmds = [
+    h.get("command", "")
+    for entry in cfg["hooks"]["UserPromptSubmit"]
+    for h in entry.get("hooks", [])
+]
+
+if not any("fsp-prompt-quality" in cmd for cmd in existing_cmds):
+    cfg["hooks"]["UserPromptSubmit"].append({
+        "hooks": [{"type": "command", "command": hook_cmd}]
+    })
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.chmod(path, 0o600)
+    print("registered")
+else:
+    print("already registered")
+PYEOF
+
+  echo -e "${GREEN}✓ prompt-quality hook installed${NC}"
+else
+  echo -e "${YELLOW}⚠ fsp-prompt-quality.sh missing from stack — skipped${NC}"
 fi
 
 echo ""

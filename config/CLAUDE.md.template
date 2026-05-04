@@ -39,7 +39,23 @@ Only stop and ask when:
 
 Otherwise: proceed, execute, report what you did.
 
-## 6. Personalise this file
+## 6. Output quality — automatic
+
+A `UserPromptSubmit` hook injects FSP output standards before every response.
+You do not need to do anything — quality guidance is applied automatically.
+
+To get an explicitly optimised prompt for a complex task, say:
+> "optimise this prompt: [your request]"
+
+Or invoke `/prompt-optimize` directly.
+
+Available skill shortcuts worth knowing:
+- `/prompt-optimize` — rewrites a vague request into a precise, high-output prompt
+- `/skill-optimizer` — audits how well a skill performed after an agent run
+- `/code-review` — review any code change before shipping
+- `/gsd-do` — plan + execute a multi-step task end-to-end
+
+## 7. Personalise this file
 
 Add your own rules below this line. They will not be overwritten by `claude-update`.
 `claude-update` only updates `~/.claude/skills/` — your CLAUDE.md is yours.
