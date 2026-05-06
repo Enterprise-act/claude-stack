@@ -30,7 +30,7 @@ import ssl
 
 VAPI_BASE = "https://api.vapi.ai"
 DEFAULT_VOICE_PROVIDER = "vapi"
-DEFAULT_VOICE_ID = "mark"
+DEFAULT_VOICE_ID = "will"
 STATE_FILE = os.path.expanduser("~/.claude/vapi-assistant.json")
 
 DEFAULT_SYSTEM_PROMPT = """\

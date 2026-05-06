@@ -32,7 +32,7 @@ A US phone number you call to talk directly with Claude. Vapi.ai handles the ful
 |------|---------|-------------|
 | `--name` | `Claude` | Display name for the assistant |
 | `--area-code` | `415` | 3-digit US area code for your number |
-| `--voice-id` | *(Vapi "mark")* | ElevenLabs or Vapi voice ID |
+| `--voice-id` | `will` (deep, authoritative) | ElevenLabs or Vapi voice ID |
 | `--system-prompt` | *(built-in)* | Override the default system prompt |
 | `--token` | `$VAPI_API_KEY` | Vapi API key |
 | `--output` | `~/.claude/vapi-assistant.json` | Where to save state |
@@ -51,6 +51,20 @@ Example — make Claude more terse:
 ```bash
 python3 vapi_setup.py --system-prompt "You are a quick, no-nonsense assistant. Answer in one sentence."
 ```
+
+## Vapi Built-in Voices
+
+Change the voice with `--voice-id`:
+
+```bash
+python3 vapi_setup.py --voice-id will    # default — deep, authoritative
+python3 vapi_setup.py --voice-id mark    # warm, conversational
+python3 vapi_setup.py --voice-id ryan    # crisp, professional male
+python3 vapi_setup.py --voice-id jennifer  # warm, professional female
+python3 vapi_setup.py --voice-id sarah   # clear, energetic female
+```
+
+No extra accounts or keys needed for Vapi built-in voices.
 
 ## Custom Voice (ElevenLabs)
 
