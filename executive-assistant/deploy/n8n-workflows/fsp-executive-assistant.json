@@ -1,0 +1,315 @@
+{
+  "name": "FSP Executive Assistant - Slack Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fsp-assistant-slack",
+        "options": {}
+      },
+      "id": "webhook-slack",
+      "name": "Slack Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "fsp-assistant-slack"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-not-bot",
+              "leftValue": "={{ $json.body.event.bot_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists"
+              }
+            },
+            {
+              "id": "check-mention",
+              "leftValue": "={{ $json.body.event.type }}",
+              "rightValue": "app_mention",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-valid-mentions",
+      "name": "Filter Valid Mentions",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FSP_ASSISTANT_URL }}/query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"{{ $json.body.event.text.replace(/<@[A-Z0-9]+>/g, '').trim() }}\",\n  \"user\": \"{{ $json.body.event.user }}\",\n  \"channel\": \"{{ $json.body.event.channel }}\",\n  \"thread_ts\": \"{{ $json.body.event.thread_ts || $json.body.event.ts }}\"\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "call-assistant-api",
+      "name": "Call Assistant API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Slack Webhook').item.json.body.event.channel }}",
+          "mode": "id"
+        },
+        "text": "={{ $json.answer }}",
+        "otherOptions": {
+          "thread_ts": "={{ $('Slack Webhook').item.json.body.event.thread_ts || $('Slack Webhook').item.json.body.event.ts }}"
+        }
+      },
+      "id": "slack-reply",
+      "name": "Reply in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [850, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={\"challenge\": \"{{ $json.body.challenge }}\"}"
+      },
+      "id": "url-verification",
+      "name": "URL Verification Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-challenge",
+              "leftValue": "={{ $json.body.type }}",
+              "rightValue": "url_verification",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-url-verification",
+      "name": "Is URL Verification?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [250, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/reactions.add",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SLACK_BOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"{{ $json.body.event.channel }}\",\n  \"timestamp\": \"{{ $json.body.event.ts }}\",\n  \"name\": \"eyes\"\n}",
+        "options": {}
+      },
+      "id": "add-eyes-reaction",
+      "name": "Add Eyes Reaction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-error",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-error",
+      "name": "Check for Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 450]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Slack Webhook').item.json.body.event.channel }}",
+          "mode": "id"
+        },
+        "text": "Sorry, I encountered an error processing your request. Please try again.",
+        "otherOptions": {
+          "thread_ts": "={{ $('Slack Webhook').item.json.body.event.thread_ts || $('Slack Webhook').item.json.body.event.ts }}"
+        }
+      },
+      "id": "error-reply",
+      "name": "Error Reply",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1050, 450],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Slack Webhook": {
+      "main": [
+        [
+          {
+            "node": "Is URL Verification?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter Valid Mentions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Add Eyes Reaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid Mentions": {
+      "main": [
+        [
+          {
+            "node": "Call Assistant API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Assistant API": {
+      "main": [
+        [
+          {
+            "node": "Reply in Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check for Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is URL Verification?": {
+      "main": [
+        [
+          {
+            "node": "URL Verification Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Error": {
+      "main": [
+        [
+          {
+            "node": "Error Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "FSP",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Slack",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 1,
+  "pinData": {}
+}
