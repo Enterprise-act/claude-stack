@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # Main Executive Assistant API + Slack Bot
+  assistant:
+    build: .
+    container_name: fsp-executive-assistant
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - config/.env
+    depends_on:
+      - qdrant
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: fsp-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  # Message Queue
+  redis:
+    image: redis:7-alpine
+    container_name: fsp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # Background Worker (for scheduled syncs)
+  worker:
+    build: .
+    container_name: fsp-worker
+    restart: unless-stopped
+    command: celery -A src.worker worker --loglevel=info
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - config/.env
+    depends_on:
+      - qdrant
+      - redis
+      - assistant
+
+  # Scheduler (for periodic ingestion)
+  scheduler:
+    build: .
+    container_name: fsp-scheduler
+    restart: unless-stopped
+    command: celery -A src.worker beat --loglevel=info
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - config/.env
+    depends_on:
+      - worker
+
+volumes:
+  qdrant_data:
+  redis_data:

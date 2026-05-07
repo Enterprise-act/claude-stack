@@ -1,0 +1,61 @@
+# Slack App Manifest for FSP Executive Assistant
+#
+# To create the Slack app:
+# 1. Go to https://api.slack.com/apps
+# 2. Click "Create New App" → "From an app manifest"
+# 3. Select your workspace
+# 4. Paste this manifest
+# 5. Create the app and install to workspace
+# 6. Copy tokens to config/.env
+
+display_information:
+  name: FSP Assistant
+  description: AI-powered executive assistant for Full Service Pros
+  background_color: "#4A154B"
+
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: FSP Assistant
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      # Core messaging
+      - app_mentions:read
+      - chat:write
+      - im:history
+      - im:read
+      - im:write
+
+      # Channel access (for memory/context)
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+
+      # User info
+      - users:read
+      - users:read.email
+
+      # Reactions
+      - reactions:read
+      - reactions:write
+
+      # Files (for document context)
+      - files:read
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
