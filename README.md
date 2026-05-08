@@ -7,12 +7,23 @@ Managed by Mark. Staff pull updates with one command.
 
 ## For staff: getting set up
 
-**Prerequisites:** macOS or Linux, [Node.js](https://nodejs.org) installed.
+**Prerequisites:** [Node.js](https://nodejs.org) and [Git](https://git-scm.com) installed.
 
 **Step 1 — Run the installer** (one time only):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Enterprise-act/claude-stack/main/install.sh | bash
 ```
+
+**Windows (PowerShell):**
+```powershell
+# Download and review before running:
+iwr -OutFile install.ps1 https://raw.githubusercontent.com/Enterprise-act/claude-stack/main/install.ps1
+notepad install.ps1
+.\install.ps1
+```
+
+**Windows users:** see [`docs/WINDOWS-SETUP.md`](docs/WINDOWS-SETUP.md) for the full guide (WSL2 recommended; native PS path also available).
+
 
 This will:
 - Install Claude Code CLI
@@ -92,6 +103,9 @@ git push
 | `config/CLAUDE.md.template` | Team-default Claude instructions |
 | `config/.env.template` | Personal API key setup guide |
 | `install.sh` | One-command setup for new staff |
+| `install.ps1` | One-command setup — Windows (native PowerShell) |
+| `scripts/claude-update.ps1` | Windows update script |
+| `docs/WINDOWS-SETUP.md` | Full Windows onboarding guide |
 
 ## What's NOT included (personal — each person sets up their own)
 
