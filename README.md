@@ -88,10 +88,14 @@ git push
 
 | Component | What it does |
 |---|---|
-| `skills/` | 196 Claude Code skills for marketing, ops, dev, content, and more |
-| `config/CLAUDE.md.template` | Team-default Claude instructions |
+| `skills/` | 196+ Claude Code skills for marketing, ops, dev, content, and more |
+| `skills/fsp-brain/` | Skill: how to use the shared team knowledge base |
+| `config/CLAUDE.md.template` | Team-default Claude instructions (includes brain usage in §7) |
 | `config/.env.template` | Personal API key setup guide |
+| `config/hooks/` | Auto-quality hook (every prompt) + session-end brain logger |
 | `install.sh` | One-command setup for new staff |
+| `supabase/functions/fsp-brain/` | Shared brain MCP server — Supabase Edge Function |
+| `docs/BRAIN-SETUP.md` | Mark-only: infrastructure setup guide |
 
 ## What's NOT included (personal — each person sets up their own)
 

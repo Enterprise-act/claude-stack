@@ -207,6 +207,45 @@ else
   echo -e "${YELLOW}  ⚠ mcp/n8n-mcp — set N8N_MCP_TOKEN in ~/.claude/.env and re-run${NC}"
 fi
 
+# 6c. Wire FSP Brain MCP server (reads FSP_BRAIN_URL + FSP_BRAIN_TOKEN from ~/.claude/.env)
+FSP_BRAIN_URL=""
+FSP_BRAIN_TOKEN=""
+if [ -f "${CLAUDE_DIR}/.env" ]; then
+  FSP_BRAIN_URL=$(grep -E '^FSP_BRAIN_URL=' "${CLAUDE_DIR}/.env" 2>/dev/null | cut -d'=' -f2- | tr -d '[:space:]' | sed "s/^['\"]//;s/['\"]$//" || true)
+  FSP_BRAIN_TOKEN=$(grep -E '^FSP_BRAIN_TOKEN=' "${CLAUDE_DIR}/.env" 2>/dev/null | cut -d'=' -f2- | tr -d '[:space:]' | sed "s/^['\"]//;s/['\"]$//" || true)
+fi
+
+if [ -n "${FSP_BRAIN_URL}" ] && [ -n "${FSP_BRAIN_TOKEN}" ]; then
+  SETTINGS="${CLAUDE_DIR}/settings.json"
+  FSP_BRAIN_URL="${FSP_BRAIN_URL}" FSP_BRAIN_TOKEN="${FSP_BRAIN_TOKEN}" python3 - "${SETTINGS}" << 'PYEOF'
+import json, sys, os
+path = sys.argv[1]
+url   = os.environ["FSP_BRAIN_URL"].rstrip("/")
+token = os.environ["FSP_BRAIN_TOKEN"]
+if os.path.islink(path):
+    sys.exit(f"Error: {path} is a symlink — aborting to prevent writing to unexpected location")
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+except FileNotFoundError:
+    cfg = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {path} has invalid JSON ({e}). Fix it manually before re-running.")
+cfg.setdefault("mcpServers", {})
+cfg["mcpServers"]["fsp-brain"] = {
+    "type": "http",
+    "url": url,
+    "headers": {"Authorization": f"Bearer {token}"}
+}
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(path, 0o600)
+PYEOF
+  echo -e "${GREEN}  ✓ mcp/fsp-brain${NC}"
+else
+  echo -e "${YELLOW}  ⚠ mcp/fsp-brain — set FSP_BRAIN_URL and FSP_BRAIN_TOKEN in ~/.claude/.env and re-run${NC}"
+fi
+
 # 7. Copy CLAUDE.md template if none exists
 if [ ! -f "${CLAUDE_DIR}/CLAUDE.md" ]; then
   if [ -f "${STACK_DIR}/config/CLAUDE.md.template" ]; then
@@ -424,6 +463,60 @@ PYEOF
   echo -e "${GREEN}✓ prompt-quality hook installed${NC}"
 else
   echo -e "${YELLOW}⚠ fsp-prompt-quality.sh missing from stack — skipped${NC}"
+fi
+
+# 10. Install session-end Stop hook — logs session summary to FSP Brain after each session
+SESSION_END_SRC="${STACK_DIR}/config/hooks/fsp-session-end.sh"
+SESSION_END_DEST="${HOOKS_DIR}/fsp-session-end.sh"
+
+if [ -f "${SESSION_END_SRC}" ]; then
+  if [ -L "${SESSION_END_DEST}" ]; then
+    echo -e "${YELLOW}⚠ ${SESSION_END_DEST} is a symlink — skipping${NC}"
+  else
+    cp "${SESSION_END_SRC}" "${SESSION_END_DEST}"
+    chmod +x "${SESSION_END_DEST}"
+  fi
+
+  SETTINGS="${CLAUDE_DIR}/settings.json"
+  SESSION_END_DEST_JSON="${SESSION_END_DEST}" python3 - "${SETTINGS}" << 'PYEOF'
+import json, sys, os, shlex
+path = sys.argv[1]
+hook_cmd = "bash " + shlex.quote(os.environ["SESSION_END_DEST_JSON"])
+
+if os.path.islink(path):
+    sys.exit(f"Error: {path} is a symlink — aborting")
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+except FileNotFoundError:
+    cfg = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {path} has invalid JSON ({e}). Fix it manually before re-running.")
+
+cfg.setdefault("hooks", {})
+cfg["hooks"].setdefault("Stop", [])
+
+existing_cmds = [
+    h.get("command", "")
+    for entry in cfg["hooks"]["Stop"]
+    for h in entry.get("hooks", [])
+]
+
+if not any("fsp-session-end" in cmd for cmd in existing_cmds):
+    cfg["hooks"]["Stop"].append({
+        "hooks": [{"type": "command", "command": hook_cmd}]
+    })
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.chmod(path, 0o600)
+    print("registered")
+else:
+    print("already registered")
+PYEOF
+
+  echo -e "${GREEN}✓ session-end hook installed${NC}"
+else
+  echo -e "${YELLOW}⚠ fsp-session-end.sh missing from stack — skipped${NC}"
 fi
 
 echo ""
