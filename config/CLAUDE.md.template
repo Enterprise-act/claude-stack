@@ -55,7 +55,31 @@ Available skill shortcuts worth knowing:
 - `/code-review` — review any code change before shipping
 - `/gsd-do` — plan + execute a multi-step task end-to-end
 
-## 7. Personalise this file
+## 7. Shared Brain — check before every client task
+
+FSP runs a shared knowledge base accessible to all staff. All memories, decisions,
+research, communications, and session activity are stored there and queryable by anyone.
+
+**Before starting any client task:**
+- Call `fsp_get_client_context("[client name]")` — returns full history, active projects,
+  recent communications, open decisions, and what the team has been working on
+- Call `fsp_recall("[topic]")` — semantic search across all past research and outputs
+
+**After completing significant work:**
+- Call `fsp_log_activity("[2–3 sentence summary]")` — this session logged to team record
+- For any decision made: call `fsp_remember(content, type="decision", client="...")`
+- For research findings: call `fsp_remember(content, type="research", ...)`
+
+**When in doubt about a process or pricing:**
+- Call `fsp_search_decisions("[topic]")` before making any judgment call
+
+**To see what the team is working on:**
+- Call `fsp_list_active_projects()` or `fsp_get_team_activity()`
+
+The brain is your first source of truth — not an afterthought. Never start client work
+cold when there may be existing context.
+
+## 8. Personalise this file
 
 Add your own rules below this line. They will not be overwritten by `claude-update`.
 `claude-update` only updates `~/.claude/skills/` — your CLAUDE.md is yours.
