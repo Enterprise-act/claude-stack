@@ -39,7 +39,7 @@ Node.js is a small program that lets you run Claude Code on your computer.
 
 ## Step 3 — Run the FSP Installer
 
-This one command sets up everything: Claude Code, all 196 skills, and the update tool.
+This one command sets up everything: Claude Code, all skills, and the update tool.
 
 1. Open **Terminal**
 2. Copy and paste this entire line, then press Enter:
@@ -54,14 +54,25 @@ This one command sets up everything: Claude Code, all 196 skills, and the update
 
 ---
 
-## Step 4 — Bookmark the Team Repo
+## Step 4 — Add Your FSP Brain Credentials
 
-The FSP Claude stack is hosted publicly at **[github.com/carrmjw/claude-stack](https://github.com/carrmjw/claude-stack)**. No GitHub account needed — you can browse skills and updates there any time.
+The installer created a file at `~/.claude/.env`. You need to add 3 values that Mark will send you on Slack.
 
-If you want to be notified when Mark pushes new skills:
-1. Create a free GitHub account at **[github.com](https://github.com)** (use your work email)
-2. Go to **[github.com/carrmjw/claude-stack](https://github.com/carrmjw/claude-stack)**
-3. Click **Watch → All Activity** in the top-right corner
+1. Open Terminal and run:
+   ```
+   open ~/.claude/.env
+   ```
+2. Find the FSP Brain section (near the bottom) and fill in the 3 values Mark sent you:
+   ```
+   FSP_BRAIN_URL=https://...
+   FSP_BRAIN_TOKEN=...
+   FSP_STAFF_NAME=Your Full Name
+   ```
+   Replace `Your Full Name` with your actual name — this is how your activity will appear in team logs.
+3. Save the file
+4. Run `claude-update` in Terminal — this wires the brain MCP into Claude
+
+> **Don't have the credentials?** Slack Mark and ask for the FSP Brain setup values.
 
 ---
 
