@@ -220,7 +220,7 @@ if [ -n "${FSP_BRAIN_URL}" ] && [ -n "${FSP_BRAIN_TOKEN}" ]; then
   FSP_BRAIN_URL="${FSP_BRAIN_URL}" FSP_BRAIN_TOKEN="${FSP_BRAIN_TOKEN}" python3 - "${SETTINGS}" << 'PYEOF'
 import json, sys, os
 path = sys.argv[1]
-url   = os.environ["FSP_BRAIN_URL"].rstrip("/") + "/mcp"
+url   = os.environ["FSP_BRAIN_URL"].rstrip("/")
 token = os.environ["FSP_BRAIN_TOKEN"]
 if os.path.islink(path):
     sys.exit(f"Error: {path} is a symlink — aborting to prevent writing to unexpected location")

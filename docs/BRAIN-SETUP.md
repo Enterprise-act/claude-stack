@@ -1,103 +1,79 @@
 # FSP Brain — Setup Guide (Mark only)
 
-One-time infrastructure setup. Staff never see this guide — they just run `claude-update`.
+One-time infrastructure setup. Staff never see this guide.
 
 ---
 
 ## Overview
 
-Two services to stand up:
-1. **Supabase** — the database (managed, free tier works to start)
-2. **AWS EC2** — runs the MCP server Docker container
+FSP Brain is a Supabase Edge Function — **no server, no Docker, no EC2**.
+Everything runs on Supabase's managed infrastructure.
 
-Total cost: ~$45/month at full team scale.
-
----
-
-## Step 1: Supabase Setup (~30 min)
-
-1. Create a free account at **supabase.com**
-2. Create a new project (call it `fsp-brain`)
-3. In the SQL Editor, run the full contents of `mcp-server/schema.sql`
-   - This creates all tables, indexes, RLS policies, and the pgvector search function
-4. Go to **Settings → API** and copy:
-   - **Project URL** → `SUPABASE_URL`
-   - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (keep this secret — server only)
+| Component | What it is | Cost |
+|-----------|-----------|------|
+| Supabase DB | Postgres + pgvector | Free tier (up to 500MB) |
+| Edge Function | Deno runtime, auto-scales | Free (2M requests/month) |
 
 ---
 
-## Step 2: EC2 Setup (~60 min)
+## Step 1: Schema (already applied)
 
-### Launch instance
-- **AMI:** Ubuntu 24.04 LTS
-- **Type:** t3.small (1 vCPU, 2GB RAM) — ~$17/month
-- **Storage:** 20GB gp3
-- **Security group — open inbound:**
-  - Port 22 (SSH) — your IP only
-  - Port 80 (HTTP) — 0.0.0.0/0
-  - Port 443 (HTTPS) — 0.0.0.0/0
-- **Key pair:** Create or use existing
+The `fsp_` tables are live in project `kycmufnisrdrvwsgydnh`.
+If you ever need to re-apply from scratch, run `mcp-server/schema.sql`
+in the Supabase SQL Editor.
 
-### DNS (optional but recommended)
-Point `brain.fspros.com` → EC2 public IP as an A record.
-Caddy handles HTTPS automatically once DNS propagates.
+---
 
-### Deploy
+## Step 2: Edge Function (already deployed)
 
+The MCP server is deployed at:
+
+```
+https://kycmufnisrdrvwsgydnh.supabase.co/functions/v1/fsp-brain
+```
+
+Verify it's up:
 ```bash
-# From your local machine: copy the mcp-server directory to EC2
-scp -r mcp-server/ ubuntu@YOUR_EC2_IP:~/fsp-brain/
-
-# SSH into EC2
-ssh ubuntu@YOUR_EC2_IP
-
-# Set domain if you added DNS (or skip for IP-only)
-export FSP_BRAIN_DOMAIN=brain.fspros.com
-
-# Run setup (installs Docker, Caddy, builds container)
-cd ~/fsp-brain
-bash deploy.sh
-```
-
-When the script pauses to ask you to fill in `.env.production`, edit it:
-
-```bash
-nano ~/fsp-brain/.env.production
-```
-
-Fill in real values:
-```
-SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-OPENAI_API_KEY=your_openai_key
-FSP_BRAIN_TOKEN=generate_a_strong_random_secret
-PORT=3000
-```
-
-Then re-run `bash deploy.sh`. It completes in ~2 minutes.
-
-### Verify
-```bash
-curl https://brain.fspros.com/health
+curl https://kycmufnisrdrvwsgydnh.supabase.co/functions/v1/fsp-brain
 # → {"status":"ok","service":"fsp-brain","version":"1.0.0"}
 ```
 
+To update the function after code changes, redeploy via the Supabase MCP tool
+`deploy_edge_function` with the contents of `supabase/functions/fsp-brain/index.ts`.
+
 ---
 
-## Step 3: Distribute to Staff (~15 min)
+## Step 3: Set Secrets (one-time — required for semantic search + auth)
+
+Go to: **Supabase Dashboard → Project `kycmufnisrdrvwsgydnh` → Settings → Edge Functions → Secrets**
+
+Add these two secrets:
+
+| Key | Value |
+|-----|-------|
+| `FSP_BRAIN_TOKEN` | `4ee134f0d657f7dbf35030b1564a96a19c0c21ec83d4fc799b047ef708f70486` |
+| `OPENAI_API_KEY` | your OpenAI key (from platform.openai.com) |
+
+`FSP_BRAIN_TOKEN` is the shared secret all staff put in their `~/.claude/.env`.
+Without `OPENAI_API_KEY` the system still works — it falls back to text search.
+
+---
+
+## Step 4: Distribute to Staff (~5 min)
 
 Send this Slack message:
 
 > **Action needed — FSP Brain setup (2 min)**
 >
-> We now have a shared team knowledge base. All your Claude sessions will have access to client history, past decisions, and team activity.
+> We now have a shared team knowledge base. All your Claude sessions will have access
+> to client history, past decisions, and team activity.
 >
 > 1. Open `~/.claude/.env` in any text editor
-> 2. Add these 3 lines at the bottom:
+> 2. Add these 3 lines:
 >
 > ```
-> FSP_BRAIN_URL=https://brain.fspros.com
-> FSP_BRAIN_TOKEN=THE_SHARED_TOKEN
+> FSP_BRAIN_URL=https://kycmufnisrdrvwsgydnh.supabase.co/functions/v1/fsp-brain
+> FSP_BRAIN_TOKEN=4ee134f0d657f7dbf35030b1564a96a19c0c21ec83d4fc799b047ef708f70486
 > FSP_STAFF_NAME=Your Full Name
 > ```
 >
@@ -107,59 +83,57 @@ Send this Slack message:
 
 ---
 
-## Step 4: Seed Initial Data (~30 min)
+## Step 5: Seed Initial Data
 
-In Claude Code with the fsp-brain MCP active, run these to seed your existing clients:
+In Claude Code with the fsp-brain MCP active:
 
 ```
-fsp_remember("Acme Corp — $5k/month retainer, contacts: john@acme.com", type="client_note", client_name="Acme Corp")
+Use fsp_remember to store: "Acme Corp — $5k/month retainer, contact: john@acme.com"
+type=client_note, client_name="Acme Corp"
 ```
 
-Or import a CSV directly into Supabase's Table Editor under the `clients` table.
+Or import a CSV directly into Supabase's Table Editor under `fsp_clients`.
+
+---
+
+## Available MCP Tools
+
+| Tool | When Claude uses it |
+|------|---------------------|
+| `fsp_get_client_context` | Before starting any client work |
+| `fsp_recall` | Semantic search across all memories |
+| `fsp_remember` | Store a note, decision, or finding |
+| `fsp_log_activity` | End-of-session summary (auto via hook) |
+| `fsp_list_active_projects` | See all open projects across the team |
+| `fsp_search_decisions` | Look up SOPs before making a judgment call |
+| `fsp_get_team_activity` | See what staff worked on recently |
 
 ---
 
 ## Ongoing Maintenance
 
-**Update the server** when code changes:
+**Update function code:**
+Redeploy `supabase/functions/fsp-brain/index.ts` via Supabase MCP or CLI:
 ```bash
-ssh ubuntu@YOUR_EC2_IP
-cd ~/fsp-brain
-git pull  # if you set up git on the server, or scp new files
-sudo docker compose up -d --build
+supabase functions deploy fsp-brain --project-ref kycmufnisrdrvwsgydnh
 ```
 
 **View logs:**
-```bash
-sudo docker compose logs -f fsp-brain
-```
+Supabase Dashboard → Edge Functions → `fsp-brain` → Logs
 
-**Backup:** Supabase Pro includes automatic daily backups. Free tier: export manually via
-Dashboard → Database → Backups.
+**Backup:**
+Supabase Dashboard → Database → Backups (automatic on Pro, manual export on Free).
 
 ---
 
 ## n8n Automation (Phase 4 — after staff rollout)
 
-Build these workflows in `enterpriseact.app.n8n.cloud`:
-
 ### Workflow 1: Slack → Brain
-- **Trigger:** Slack — watch `#client-*` channels for new messages
-- **Action:** HTTP POST to `https://brain.fspros.com/mcp` with `fsp_remember` tool call
-- **What it stores:** `type=communication`, `source=slack`, extracts client from channel name
+- **Trigger:** Slack — watch `#client-*` channels
+- **Action:** HTTP POST to `https://kycmufnisrdrvwsgydnh.supabase.co/functions/v1/fsp-brain`
+- **Body:** `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fsp_remember","arguments":{...}}}`
+- **Header:** `Authorization: Bearer 4ee134f0d657f7dbf35030b1564a96a19c0c21ec83d4fc799b047ef708f70486`
 
-### Workflow 2: Gmail → Brain
-- **Trigger:** Gmail — new email from `@[known-client-domain].com`
-- **Action:** Summarize email body (via Claude API node), POST to brain
-- **What it stores:** `type=communication`, `source=gmail`
-
-### Workflow 3: Daily Digest
+### Workflow 2: Daily Digest
 - **Trigger:** Schedule — 9am weekdays
-- **Action:** GET `https://brain.fspros.com/mcp` → `fsp_get_team_activity(days=1)`
-- **Action:** Format and POST to `#team` Slack channel
-- **What it shows:** Yesterday's sessions by staff member
-
-n8n HTTP requests need the Authorization header:
-```
-Authorization: Bearer YOUR_FSP_BRAIN_TOKEN
-```
+- **Action:** Call `fsp_get_team_activity` and post result to `#team` Slack channel
