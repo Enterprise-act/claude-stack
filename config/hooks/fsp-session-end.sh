@@ -1,6 +1,7 @@
 #!/bin/bash
 # FSP Brain — Session End Hook (Stop event)
-# Fires after Claude finishes responding, prompting staff to log the session.
+# Fires automatically after every Claude session ends.
+# Extracts the summary from the transcript — no user prompt, always logs.
 # Requires FSP_BRAIN_URL and FSP_BRAIN_TOKEN in ~/.claude/.env
 
 # Load env
@@ -10,33 +11,79 @@ if [ -f "${ENV_FILE}" ]; then
   set -a; source "${ENV_FILE}"; set +a
 fi
 
-# Skip silently if brain not configured
+# Skip silently if brain not configured or explicitly disabled
 [ -z "${FSP_BRAIN_URL:-}" ] || [ -z "${FSP_BRAIN_TOKEN:-}" ] && exit 0
+[ "${FSP_HIVEMIND_SKIP:-0}" = "1" ] && exit 0
 
 STAFF_NAME="${FSP_STAFF_NAME:-$(whoami)}"
 
 # Read the hook payload from stdin (Claude Code passes JSON on stdin for Stop hooks)
 PAYLOAD=$(cat)
-# Extract the transcript summary if available — otherwise prompt the user
-STOP_REASON=$(echo "${PAYLOAD}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('stop_reason',''))" 2>/dev/null || echo "")
 
-# Only log if this was a real session end (not a mid-session tool call stop)
+# Only log real session ends
+STOP_REASON=$(echo "${PAYLOAD}" | python3 -c \
+  "import json,sys; print(json.load(sys.stdin).get('stop_reason',''))" 2>/dev/null || echo "")
 [ "${STOP_REASON}" = "end_turn" ] || [ -z "${STOP_REASON}" ] || exit 0
 
-# Prompt for session summary via stderr (visible in terminal, not sent to Claude)
-echo "" >&2
-echo "─────────────────────────────────────────" >&2
-echo "  FSP Brain: What did you accomplish?" >&2
-echo "  (2 sentences max — press Enter to skip)" >&2
-echo "─────────────────────────────────────────" >&2
+# Extract session_id for trace file lookup
+SESSION_ID=$(echo "${PAYLOAD}" | python3 -c \
+  "import json,sys; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || echo "")
 
-# Read from /dev/tty so it works even when stdin is the hook payload
-read -r -t 30 SUMMARY < /dev/tty 2>/dev/null || SUMMARY=""
+# Auto-extract summary from the last assistant message in the transcript
+SUMMARY=$(echo "${PAYLOAD}" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for msg in reversed(d.get('transcript', [])):
+    if msg.get('role') == 'assistant':
+        c = msg.get('content', '')
+        if isinstance(c, str):
+            text = c
+        elif isinstance(c, list):
+            text = ' '.join(
+                x.get('text', '') for x in c
+                if isinstance(x, dict) and x.get('type') == 'text'
+            )
+        else:
+            continue
+        t = text.strip()[:400]
+        if t:
+            print(t)
+            break
+" 2>/dev/null || echo "")
 
-[ -z "${SUMMARY}" ] && exit 0
+[ -z "${SUMMARY}" ] && SUMMARY="Session completed — $(date '+%Y-%m-%d %H:%M')"
 
-# POST to FSP Brain log-activity endpoint via MCP tool call pattern
-# We call the REST API directly since we're in a shell hook
+# Prepend tool-call trace counts if a trace file exists for this session
+if [ -n "${SESSION_ID}" ]; then
+  TRACE_FILE="${HOME}/.claude/.fsp-trace-${SESSION_ID}.jsonl"
+else
+  # Fallback: find the most recently modified trace file (orphaned session)
+  TRACE_FILE=$(ls -t "${HOME}/.claude/.fsp-trace-"*.jsonl 2>/dev/null | head -1 || echo "")
+fi
+
+if [ -f "${TRACE_FILE}" ]; then
+  COUNTS=$(python3 -c "
+import json, sys, collections
+counts = collections.Counter()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        counts[json.loads(line)['t']] += 1
+    except Exception:
+        pass
+if counts:
+    print('[' + ', '.join(f'{k}×{v}' for k, v in counts.most_common()) + '] ')
+" < "${TRACE_FILE}" 2>/dev/null || echo "")
+  SUMMARY="${COUNTS}${SUMMARY}"
+  rm -f "${TRACE_FILE}"
+fi
+
+# Also clean up any trace files older than 24 h (orphaned from crashed sessions)
+find "${HOME}/.claude" -maxdepth 1 -name '.fsp-trace-*.jsonl' -mmin +1440 -delete 2>/dev/null || true
+
+# POST to FSP Brain — unconditional (was conditional on user input before)
 curl -sf \
   -X POST \
   -H "Authorization: Bearer ${FSP_BRAIN_TOKEN}" \
@@ -50,5 +97,4 @@ print(json.dumps({
 }))
 " "${SUMMARY}" "${STAFF_NAME}")" > /dev/null 2>&1 || true
 
-# No output on success — keep it clean
 exit 0
