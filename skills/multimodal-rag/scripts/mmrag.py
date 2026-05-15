@@ -21,6 +21,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import sys
 import time
@@ -51,8 +52,8 @@ DEFAULT_VIDEO_OVERLAP_SECONDS = 15
 DEFAULT_AUDIO_CHUNK_SECONDS = 60
 DEFAULT_AUDIO_OVERLAP_SECONDS = 10
 DEFAULT_EMBEDDING_DIMENSIONS = 768
-DEFAULT_SIMILARITY_THRESHOLD = 0.0  # return everything by default, let caller filter
-DEFAULT_MAX_TOKENS = 0  # 0 = unlimited
+DEFAULT_SIMILARITY_THRESHOLD = 0.3  # minimum relevance floor; lower returns noise
+DEFAULT_MAX_TOKENS = 8192  # per-query token budget; pass --max-tokens 0 to disable
 DEFAULT_PREVIEW_CHARS = 300
 
 # Pricing (per 1M tokens)
@@ -61,6 +62,36 @@ FLASH_INPUT_PRICE_PER_M = 0.15
 FLASH_OUTPUT_PRICE_PER_M = 0.60
 
 USAGE_FILE = MMRAG_DIR / "usage.json"
+
+# Max chars stored per Gemini-generated description (retrieval quality vs. injection risk)
+_DESCRIPTION_MAX_CHARS = 4000
+
+# Patterns that indicate prompt-injection attempts in Gemini-generated descriptions.
+# Checked case-insensitively; matching content is truncated at the first hit.
+_INJECTION_PATTERNS = re.compile(
+    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?"
+    r"|disregard\s+(all\s+)?(previous|prior|above)"
+    r"|system\s*prompt"
+    r"|<\s*/?(?:instructions?|system|prompt)\s*>",
+    re.IGNORECASE,
+)
+
+
+def sanitize_description(text: str) -> str:
+    """Cap length and strip prompt-injection patterns from Gemini-generated descriptions."""
+    m = _INJECTION_PATTERNS.search(text)
+    if m:
+        text = text[: m.start()].rstrip() + " [content filtered]"
+    return text[:_DESCRIPTION_MAX_CHARS]
+
+
+def source_hash(file_path) -> str:
+    """SHA-256 of the first 1 MB of a file — detects content tampering on re-ingest."""
+    h = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        h.update(f.read(1024 * 1024))
+    return h.hexdigest()[:16]
+
 
 # ---------------------------------------------------------------------------
 # Usage Tracker
@@ -252,9 +283,12 @@ def describe_media(client, config, file_path, media_type="video"):
             types.Part.from_bytes(data=data, mime_type=mime),
             prompts.get(media_type, prompts["video"]),
         ],
+        config=types.GenerateContentConfig(temperature=0),
     )
     if _tracker:
         _tracker.track_generation(response)
+    if not response.candidates or not response.text:
+        raise ValueError(f"Gemini returned no content for {file_path.name} ({media_type})")
     return response.text, data, mime
 
 # ---------------------------------------------------------------------------
@@ -265,7 +299,7 @@ def get_chroma_collection(collection_name="default"):
     client = chromadb.PersistentClient(path=str(CHROMADB_DIR))
     return client.get_or_create_collection(
         name=collection_name,
-        metadata={"hnsw:space": "cosine"},
+        metadata={"hnsw:space": "cosine", "hnsw:ef_search": 100},
     )
 
 
@@ -484,6 +518,7 @@ def ingest_image(client, config, collection, file_path):
 
     print(f"  Generating description for {file_path.name}...")
     description, media_bytes, mime = describe_media(client, config, file_path, "image")
+    description = sanitize_description(description)
 
     # Option B: embed text description + raw image together
     try:
@@ -498,6 +533,7 @@ def ingest_image(client, config, collection, file_path):
         documents=[description],
         metadatas=[{
             "source": str(file_path.resolve()),
+            "source_hash": source_hash(file_path),
             "type": "image",
             "filename": file_path.name,
             "file_ext": file_path.suffix.lower(),
@@ -596,6 +632,7 @@ def ingest_video(client, config, collection, file_path):
                 f"(Description unavailable - file may be too large or corrupted)"
             )
 
+        description = sanitize_description(description)
         # Embed: try multimodal if we have small media bytes, else text-only
         if media_bytes and mime and len(media_bytes) < 20 * 1024 * 1024:
             try:
@@ -611,6 +648,7 @@ def ingest_video(client, config, collection, file_path):
             documents=[description],
             metadatas=[{
                 "source": str(file_path.resolve()),
+                "source_hash": source_hash(file_path),
                 "type": "video_chunk",
                 "chunk_index": chunk["index"],
                 "total_chunks": total_chunks,
@@ -646,6 +684,7 @@ def ingest_audio(client, config, collection, file_path):
 
         print(f"  Transcribing {file_path.name}...")
         description, media_bytes, mime = describe_media(client, config, file_path, "audio")
+        description = sanitize_description(description)
 
         try:
             embedding = embed_multimodal(client, config, description, media_bytes, mime)
@@ -658,6 +697,7 @@ def ingest_audio(client, config, collection, file_path):
             documents=[description],
             metadatas=[{
                 "source": str(file_path.resolve()),
+                "source_hash": source_hash(file_path),
                 "type": "audio",
                 "filename": file_path.name,
                 "file_ext": file_path.suffix.lower(),
@@ -688,6 +728,7 @@ def ingest_audio(client, config, collection, file_path):
                 media_bytes = None
                 mime = None
 
+            description = sanitize_description(description)
             if media_bytes and mime:
                 try:
                     embedding = embed_multimodal(client, config, description, media_bytes, mime)
@@ -702,6 +743,7 @@ def ingest_audio(client, config, collection, file_path):
                 documents=[description],
                 metadatas=[{
                     "source": str(file_path.resolve()),
+                    "source_hash": source_hash(file_path),
                     "type": "audio_chunk",
                     "chunk_index": chunk["index"],
                     "total_chunks": total_chunks,
@@ -744,9 +786,12 @@ def ingest_pdf(client, config, collection, file_path):
             "Separate each page's content with '=== PAGE N ===' markers.\n"
             "Be thorough - this will be used for search and retrieval.",
         ],
+        config=types.GenerateContentConfig(temperature=0),
     )
     if _tracker:
         _tracker.track_generation(response)
+    if not response.candidates or not response.text:
+        raise ValueError(f"Gemini returned no content for PDF: {file_path.name}")
     text = response.text
 
     # Split by page markers if present, otherwise chunk normally
@@ -1446,8 +1491,8 @@ def main():
     p_query.add_argument("--top-k", "-k", type=int, default=5, help="Max number of results (default: 5)")
     p_query.add_argument("--threshold", "-t", type=float, default=None,
                          help="Min similarity threshold 0.0-1.0 (default: 0.0, return all)")
-    p_query.add_argument("--max-tokens", "-m", type=int, default=0,
-                         help="Max total tokens in results (0=unlimited)")
+    p_query.add_argument("--max-tokens", "-m", type=int, default=DEFAULT_MAX_TOKENS,
+                         help=f"Max total tokens in results (default: {DEFAULT_MAX_TOKENS}; 0=unlimited)")
     p_query.add_argument("--collection", "-c", help="Collection name")
     p_query.add_argument("--type", help="Filter by content type: image, video, text, pdf, audio")
     p_query.add_argument("--json", "-j", action="store_true", help="Output as JSON (for agent consumption)")

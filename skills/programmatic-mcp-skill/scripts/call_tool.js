@@ -24,6 +24,10 @@ async function callTool(toolName, args, command, commandArgs) {
 
   try {
     const result = await client.callTool({ name: toolName, arguments: args });
+    if (!result?.content) {
+      console.error("Error: tool returned empty or null content");
+      process.exit(1);
+    }
     for (const content of result.content) {
       if (content.type === "text") {
         console.log(content.text);
