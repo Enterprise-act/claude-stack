@@ -9,6 +9,7 @@ import { schema as logActivitySchema, logActivity } from "./tools/log-activity.j
 import { schema as listProjectsSchema, listActiveProjects } from "./tools/list-projects.js";
 import { schema as searchDecisionsSchema, searchDecisions } from "./tools/search-decisions.js";
 import { schema as teamActivitySchema, getTeamActivity } from "./tools/team-activity.js";
+import { schema as buildAgentPromptSchema, buildAgentPrompt } from "./tools/build-agent-prompt.js";
 
 const BEARER_TOKEN = process.env.FSP_BRAIN_TOKEN;
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
@@ -94,6 +95,16 @@ function createMcpServer() {
     teamActivitySchema.shape,
     async (args) => {
       const result = await getTeamActivity(args as any);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "fsp_build_agent_prompt",
+    "Generate a CrewAI-style role-playing system prompt for an FSP agent. Pass role/goal/backstory and options to get back a ready-to-use system prompt (and optional separate user turn). Supports task_execution, lite_agent, planning, knowledge_search, and error templates.",
+    buildAgentPromptSchema.shape,
+    async (args) => {
+      const result = await buildAgentPrompt(args as any);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
   );
