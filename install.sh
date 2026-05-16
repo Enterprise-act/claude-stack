@@ -366,17 +366,27 @@ done
 shopt -u nullglob
 mv "${MANIFEST_TMP}" "${MANIFEST}"
 
-# Sync prompt-quality hook
-HOOK_SRC="${STACK_DIR}/config/hooks/fsp-prompt-quality.sh"
-HOOK_DEST="${HOME}/.claude/hooks/fsp-prompt-quality.sh"
-if [ -f "${HOOK_SRC}" ]; then
-  if [ -L "${HOOK_DEST}" ]; then
-    echo "  Skipping hook sync: ${HOOK_DEST} is a symlink"
-  else
-    mkdir -p "${HOME}/.claude/hooks"
-    cp "${HOOK_SRC}" "${HOOK_DEST}"
-    chmod +x "${HOOK_DEST}"
+# Sync FSP hooks — prompt-quality, session-end, trace-capture
+for _hook_name in fsp-prompt-quality.sh fsp-session-end.sh fsp-trace-capture.sh; do
+  _hook_src="${STACK_DIR}/config/hooks/${_hook_name}"
+  _hook_dest="${HOME}/.claude/hooks/${_hook_name}"
+  if [ -f "${_hook_src}" ]; then
+    if [ -L "${_hook_dest}" ]; then
+      echo "  Skipping hook sync: ${_hook_dest} is a symlink"
+    else
+      mkdir -p "${HOME}/.claude/hooks"
+      cp "${_hook_src}" "${_hook_dest}"
+      chmod +x "${_hook_dest}"
+    fi
   fi
+done
+
+# Sync FSP shared context — re-runs installer on every update so fsp-CLAUDE.md
+# and fsp-shortcuts.md stay current, and CLAUDE.md @import is self-healing
+# (re-patched if it was accidentally removed since last update).
+_fsp_ctx="${STACK_DIR}/staff-bundle/install-fsp-context.sh"
+if [ -f "${_fsp_ctx}" ] && [ ! -L "${_fsp_ctx}" ]; then
+  bash "${_fsp_ctx}" 2>&1 | grep -v '^[[:space:]]*$'
 fi
 
 echo "✓ Claude Stack updated to $(git -C "${STACK_DIR}" rev-parse --short HEAD)"
@@ -517,6 +527,75 @@ PYEOF
   echo -e "${GREEN}✓ session-end hook installed${NC}"
 else
   echo -e "${YELLOW}⚠ fsp-session-end.sh missing from stack — skipped${NC}"
+fi
+
+# 11. Install trace-capture PostToolUse hook — records tool usage patterns per session
+TRACE_CAPTURE_SRC="${STACK_DIR}/config/hooks/fsp-trace-capture.sh"
+TRACE_CAPTURE_DEST="${HOOKS_DIR}/fsp-trace-capture.sh"
+
+if [ -f "${TRACE_CAPTURE_SRC}" ]; then
+  if [ -L "${TRACE_CAPTURE_DEST}" ]; then
+    echo -e "${YELLOW}⚠ ${TRACE_CAPTURE_DEST} is a symlink — skipping${NC}"
+  else
+    cp "${TRACE_CAPTURE_SRC}" "${TRACE_CAPTURE_DEST}"
+    chmod +x "${TRACE_CAPTURE_DEST}"
+  fi
+
+  SETTINGS="${CLAUDE_DIR}/settings.json"
+  TRACE_CAPTURE_DEST_JSON="${TRACE_CAPTURE_DEST}" python3 - "${SETTINGS}" << 'PYEOF'
+import json, sys, os, shlex
+path = sys.argv[1]
+hook_cmd = "bash " + shlex.quote(os.environ["TRACE_CAPTURE_DEST_JSON"])
+
+if os.path.islink(path):
+    sys.exit(f"Error: {path} is a symlink — aborting")
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+except FileNotFoundError:
+    cfg = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {path} has invalid JSON ({e}). Fix it manually before re-running.")
+
+cfg.setdefault("hooks", {})
+cfg["hooks"].setdefault("PostToolUse", [])
+
+existing_cmds = [
+    h.get("command", "")
+    for entry in cfg["hooks"]["PostToolUse"]
+    for h in entry.get("hooks", [])
+]
+
+if not any("fsp-trace-capture" in cmd for cmd in existing_cmds):
+    cfg["hooks"]["PostToolUse"].append({
+        "hooks": [{"type": "command", "command": hook_cmd}]
+    })
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.chmod(path, 0o600)
+    print("registered")
+else:
+    print("already registered")
+PYEOF
+
+  echo -e "${GREEN}✓ trace-capture hook installed${NC}"
+else
+  echo -e "${YELLOW}⚠ fsp-trace-capture.sh missing from stack — skipped${NC}"
+fi
+
+# 12. Install FSP shared context — fsp-CLAUDE.md + shortcuts + CLAUDE.md @import
+# Runs the staff-bundle installer which is idempotent: skips unchanged files,
+# backs up local edits, and re-patches CLAUDE.md if the @import was removed.
+FSP_CONTEXT_INSTALLER="${STACK_DIR}/staff-bundle/install-fsp-context.sh"
+if [ -f "${FSP_CONTEXT_INSTALLER}" ]; then
+  if [ -L "${FSP_CONTEXT_INSTALLER}" ]; then
+    echo -e "${YELLOW}⚠ FSP context installer is a symlink — skipping${NC}"
+  else
+    bash "${FSP_CONTEXT_INSTALLER}" 2>&1 | sed 's/^/  /'
+    echo -e "${GREEN}✓ FSP shared context installed${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠ staff-bundle/install-fsp-context.sh not found — skipped${NC}"
 fi
 
 echo ""
