@@ -4,8 +4,9 @@
 # Injects FSP output quality standards before every Claude response.
 # Staff get better output automatically — no prompting knowledge required.
 
-cat << 'GUIDANCE'
-<fsp-quality>
+python3 - << 'EOF'
+import json
+ctx = """<fsp-quality>
 FSP OUTPUT STANDARDS — apply to every response unless the user's request overrides:
 
 BEFORE executing:
@@ -43,5 +44,6 @@ Divisions: Remediation (water/fire/mold) + Repairs & Remodeling.
 8. CC Jordan or Mark on any communication involving litigation, pre-suit, or settlement
 9. $100 staff bonus for every Google/BBB review received — remind clients at job close
 10. All job updates go in the job's Slack channel: #fsp-{job_number}-{client-name}
-</fsp-identity>
-GUIDANCE
+</fsp-identity>"""
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ctx}}))
+EOF
