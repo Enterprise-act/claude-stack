@@ -52,7 +52,8 @@ The hooks check this variable and exit silently if set.
 
 | File | Role |
 |------|------|
-| `~/.claude/hooks/fsp-session-end.sh` | Stop hook — auto-logs every session |
-| `~/.claude/hooks/fsp-trace-capture.sh` | PostToolUse hook — traces tool calls |
+| `config/hooks/fsp-session-end.sh` | Stop hook — auto-logs every session |
+| `config/hooks/fsp-trace-capture.sh` | PostToolUse hook — traces tool calls |
+| `config/hooks/fsp-prompt-quality.sh` | UserPromptSubmit hook — injects FSP quality standards |
 | `~/.claude/.fsp-trace-{session_id}.jsonl` | Temporary trace buffer (deleted at session end) |
-| n8n workflow `fsp-skill-synthesis` | Weekly synthesis → `#claude-stack` |
+| n8n workflow `fsp-skill-synthesis` (ID: WN0MZ1cXSmeK0Qgm) | Weekly synthesis → `#claude-stack` |
