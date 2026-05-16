@@ -8,7 +8,12 @@ const SUPABASE_URL        = Deno.env.get("SUPABASE_URL")             ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const OPENAI_KEY          = Deno.env.get("OPENAI_API_KEY")           ?? "";
 
-// ── db / openai helpers ───────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
+async function sha256hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 function db(): SupabaseClient {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
@@ -116,7 +121,7 @@ async function fsp_recall(args: Record<string, unknown>) {
 async function fsp_remember(args: Record<string, unknown>) {
   const sb        = db();
   const content   = String(args.content ?? "");
-  const staffName = String(args.created_by ?? args.staff_name ?? "unknown");
+  const staffName = String(args._staff_name ?? args.created_by ?? args.staff_name ?? "unknown");
 
   let clientId: string | undefined;
   if (args.client_name) clientId = await resolveClient(sb, String(args.client_name));
@@ -147,7 +152,7 @@ async function fsp_remember(args: Record<string, unknown>) {
 
 async function fsp_log_activity(args: Record<string, unknown>) {
   const sb        = db();
-  const staffName = String(args.staff_name ?? "unknown");
+  const staffName = String(args._staff_name ?? args.staff_name ?? "unknown");
   const summary   = String(args.summary ?? args.session_summary ?? "");
 
   let clientId: string | undefined;
@@ -331,7 +336,7 @@ const HANDLERS: Record<string, (a: Record<string, unknown>) => Promise<unknown>>
 };
 
 // ── MCP JSON-RPC 2.0 ──────────────────────────────────────────────────────────
-async function handleMcp(body: unknown): Promise<unknown> {
+async function handleMcp(body: unknown, staffName?: string): Promise<unknown> {
   const req = body as { jsonrpc: string; id?: unknown; method: string; params?: unknown };
   const id  = req.id ?? null;
 
@@ -358,7 +363,10 @@ async function handleMcp(body: unknown): Promise<unknown> {
       if (!handler)
         return { jsonrpc: "2.0", id, error: { code: -32601, message: `Unknown tool: ${p.name}` } };
       try {
-        const result = await handler(p.arguments ?? {});
+        const args = staffName
+          ? { ...p.arguments ?? {}, _staff_name: staffName }
+          : p.arguments ?? {};
+        const result = await handler(args);
         return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] } };
       } catch (e) {
         return { jsonrpc: "2.0", id, error: { code: -32603, message: String(e) } };
@@ -379,15 +387,33 @@ Deno.serve(async (req: Request) => {
   if (req.method === "GET")
     return Response.json({ status: "ok", service: "fsp-brain", version: "1.0.0" });
 
-  // auth
-  if (BRAIN_TOKEN) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (!auth.startsWith("Bearer ") || auth.slice(7) !== BRAIN_TOKEN)
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   if (req.method !== "POST")
     return new Response("Method Not Allowed", { status: 405 });
+
+  // ── auth + rate limiting ──────────────────────────────────────────────────
+  const rawToken = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "").trim();
+  if (!rawToken) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Compatibility: existing staff using the shared BRAIN_TOKEN keep working
+  // during the per-staff token rollout. Remove once all staff have personal tokens.
+  let staffName: string;
+  if (BRAIN_TOKEN && rawToken === BRAIN_TOKEN) {
+    staffName = Deno.env.get("FSP_STAFF_NAME") ?? "legacy";
+  } else {
+    const hash      = await sha256hex(rawToken);
+    const windowMin = Math.floor(Date.now() / 60_000);
+    const { data: auth } = await db().rpc("fsp_authorize_request", {
+      p_token_hash: hash,
+      p_window_min: windowMin,
+      p_limit: 60,
+    });
+    if (!auth?.authorized) {
+      const status = auth?.reason === "rate_limited" ? 429 : 401;
+      return Response.json({ error: auth?.reason ?? "Unauthorized" }, { status });
+    }
+    staffName = auth.staff_name;
+    if (Math.random() < 0.05) db().rpc("fsp_prune_rate_limit").then(() => {});
+  }
 
   const bodyText = await req.text();
   let body: unknown;
@@ -397,12 +423,12 @@ Deno.serve(async (req: Request) => {
   // REST /log for shell hook
   if (lastPart === "log") {
     const b = body as Record<string, unknown>;
-    const result = await fsp_log_activity({ summary: b.summary, staff_name: b.staff_name });
+    const result = await fsp_log_activity({ ...b, _staff_name: staffName });
     return Response.json(result);
   }
 
   // MCP JSON-RPC
-  const result = await handleMcp(body);
+  const result = await handleMcp(body, staffName);
   if (result === null) return new Response(null, { status: 204 });
   return Response.json(result);
 });

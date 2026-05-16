@@ -1,0 +1,15 @@
+name: Deploy FSP Brain
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/functions/fsp-brain/**"]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+      - run: supabase functions deploy fsp-brain --project-ref kycmufnisrdrvwsgydnh
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
