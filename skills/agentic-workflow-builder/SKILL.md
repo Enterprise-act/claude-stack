@@ -67,6 +67,8 @@ import { task, schedules, idempotencyKeys, logger } from "@trigger.dev/sdk";
 ### 5. Wire integrations
 
 For each integration mentioned, check `stack/` for a reference file:
+- [stack/claude-skills.md](stack/claude-skills.md) — **invoke any of the 191 claude-stack skills** from a trigger.dev task via the Anthropic API (`invokeSkill` helper, multi-skill pipeline examples)
+- [stack/skills-catalog.md](stack/skills-catalog.md) — full catalog of all 191 skills by use case — pick the right skill for each automation step
 - [stack/clickup-integration.md](stack/clickup-integration.md) — task create/update/comment + list watching
 - [stack/kie-ai-images.md](stack/kie-ai-images.md) — Nano Banana Pro image generation + polling
 - [stack/youtube-source.md](stack/youtube-source.md) — channel polling + transcript fetch
