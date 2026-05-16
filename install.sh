@@ -246,7 +246,52 @@ else
   echo -e "${YELLOW}  ⚠ mcp/fsp-brain — set FSP_BRAIN_URL and FSP_BRAIN_TOKEN in ~/.claude/.env and re-run${NC}"
 fi
 
-# 7. Copy CLAUDE.md template if none exists
+# 7. Download and apply system settings template (merge — preserves existing MCPs/hooks)
+SETTINGS_TEMPLATE="${STACK_DIR}/config/settings.json.template"
+SETTINGS="${CLAUDE_DIR}/settings.json"
+if [ -f "${SETTINGS_TEMPLATE}" ]; then
+  if [ -L "${SETTINGS}" ]; then
+    echo -e "${YELLOW}⚠ settings.json is a symlink — skipping settings template apply${NC}"
+  else
+    SETTINGS_TEMPLATE="${SETTINGS_TEMPLATE}" SETTINGS="${SETTINGS}" python3 << 'PYEOF'
+import json, sys, os
+src  = os.environ["SETTINGS_TEMPLATE"]
+dst  = os.environ["SETTINGS"]
+with open(src) as f:
+    tmpl = json.load(f)
+tmpl.pop("__comment", None)
+try:
+    with open(dst) as f:
+        existing = json.load(f)
+except FileNotFoundError:
+    existing = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {dst} has invalid JSON ({e}). Fix it manually before re-running.")
+tmpl_allow     = tmpl.get("permissions", {}).get("allow", [])
+existing_allow = existing.get("permissions", {}).get("allow", [])
+merged_allow   = list(dict.fromkeys(existing_allow + [a for a in tmpl_allow if a not in existing_allow]))
+result = {
+    "permissions": {
+        "allow": merged_allow,
+        "deny": existing.get("permissions", {}).get("deny", []),
+    },
+    "hooks":      existing.get("hooks",      tmpl.get("hooks", {})),
+    "mcpServers": existing.get("mcpServers", tmpl.get("mcpServers", {})),
+}
+for k, v in existing.items():
+    if k not in result:
+        result[k] = v
+with open(dst, "w") as f:
+    json.dump(result, f, indent=2)
+os.chmod(dst, 0o600)
+PYEOF
+    echo -e "${GREEN}✓ settings.json updated from template${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠ settings.json.template missing in repo — skipped${NC}"
+fi
+
+# 8. Copy CLAUDE.md template if none exists
 if [ ! -f "${CLAUDE_DIR}/CLAUDE.md" ]; then
   if [ -f "${STACK_DIR}/config/CLAUDE.md.template" ]; then
     cp "${STACK_DIR}/config/CLAUDE.md.template" "${CLAUDE_DIR}/CLAUDE.md"
@@ -258,7 +303,7 @@ else
   echo -e "${YELLOW}⚠ CLAUDE.md already exists — skipped${NC}"
 fi
 
-# 8. Set up .env for personal API keys
+# 9. Set up .env for personal API keys
 if [ ! -f "${CLAUDE_DIR}/.env" ]; then
   if [ -f "${STACK_DIR}/config/.env.template" ]; then
     cp "${STACK_DIR}/config/.env.template" "${CLAUDE_DIR}/.env"
@@ -269,7 +314,7 @@ if [ ! -f "${CLAUDE_DIR}/.env" ]; then
   fi
 fi
 
-# 8. Install claude-update — skip if an unrelated script already exists there
+# 10. Install claude-update — skip if an unrelated script already exists there
 TMPFILE=$(mktemp)
 chmod 600 "${TMPFILE}"
 trap 'rm -f "${TMPFILE}"' EXIT
@@ -406,7 +451,7 @@ else
   fi
 fi
 
-# 9. Install prompt-quality hook — injects FSP output standards on every prompt
+# 11. Install prompt-quality hook — injects FSP output standards on every prompt
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 HOOK_SRC="${STACK_DIR}/config/hooks/fsp-prompt-quality.sh"
 HOOK_DEST="${HOOKS_DIR}/fsp-prompt-quality.sh"
@@ -465,7 +510,7 @@ else
   echo -e "${YELLOW}⚠ fsp-prompt-quality.sh missing from stack — skipped${NC}"
 fi
 
-# 10. Install session-end Stop hook — logs session summary to FSP Brain after each session
+# 12. Install session-end Stop hook — logs session summary to FSP Brain after each session
 SESSION_END_SRC="${STACK_DIR}/config/hooks/fsp-session-end.sh"
 SESSION_END_DEST="${HOOKS_DIR}/fsp-session-end.sh"
 
@@ -531,4 +576,5 @@ else
 fi
 echo "  3. Edit: ~/.claude/.env        ← add your personal API keys"
 echo "  4. Connect integrations:       https://claude.ai/settings/integrations"
+echo "  5. Refresh settings anytime:   bash ~/.claude/fsp-stack/scripts/download-settings.sh"
 echo ""

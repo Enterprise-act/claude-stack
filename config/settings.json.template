@@ -1,0 +1,25 @@
+{
+  "__comment": "FSP Claude Stack — settings.json template. Maintained centrally by Mark. Run download-settings.sh to apply the latest version.",
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(node *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(cat *)",
+      "Bash(echo *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(chmod *)",
+      "Bash(curl *)",
+      "Bash(python3 *)"
+    ],
+    "deny": []
+  },
+  "hooks": {},
+  "mcpServers": {}
+}
