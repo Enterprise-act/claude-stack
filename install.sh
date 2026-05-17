@@ -406,6 +406,42 @@ else
   fi
 fi
 
+# 8b. Install claude-settings — lightweight sync of MCP servers and hooks
+SETTINGS_SCRIPT_SRC="${STACK_DIR}/scripts/download-settings.sh"
+SETTINGS_SCRIPT_CONTENT=""
+if [ -f "${SETTINGS_SCRIPT_SRC}" ]; then
+  SETTINGS_SCRIPT_CONTENT=$(cat "${SETTINGS_SCRIPT_SRC}")
+fi
+
+install_settings_script() {
+  local dest="$1"
+  if [ -L "${dest}" ]; then
+    echo -e "${YELLOW}⚠ ${dest} is a symlink — skipping to avoid following it${NC}"
+    return 1
+  fi
+  if [ -f "${dest}" ] && ! grep -qxF "${FSP_MARKER}" "${dest}" 2>/dev/null; then
+    echo -e "${YELLOW}⚠ ${dest} exists and is not FSP-managed — skipping to avoid overwrite${NC}"
+    return 1
+  fi
+  if [ -z "${SETTINGS_SCRIPT_CONTENT}" ]; then
+    echo -e "${YELLOW}⚠ download-settings.sh missing from stack — skipping claude-settings install${NC}"
+    return 1
+  fi
+  # Prepend FSP marker so future runs recognise this as FSP-managed
+  printf '%s\n%s\n' "# ${FSP_MARKER}" "${SETTINGS_SCRIPT_CONTENT}" > "${dest}"
+  chmod +x "${dest}"
+}
+
+SETTINGS_SCRIPT="/usr/local/bin/claude-settings"
+if install_settings_script "${SETTINGS_SCRIPT}" 2>/dev/null; then
+  echo -e "${GREEN}✓ claude-settings installed at ${SETTINGS_SCRIPT}${NC}"
+else
+  mkdir -p "${HOME}/bin"
+  if install_settings_script "${HOME}/bin/claude-settings"; then
+    echo -e "${GREEN}✓ claude-settings installed at ~/bin/claude-settings${NC}"
+  fi
+fi
+
 # 9. Install prompt-quality hook — injects FSP output standards on every prompt
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 HOOK_SRC="${STACK_DIR}/config/hooks/fsp-prompt-quality.sh"
@@ -529,6 +565,11 @@ else
   echo "  2. Run updates:                ~/.claude/fsp-stack/install.sh"
   echo "     (add ~/bin to PATH to use claude-update: export PATH=\"\$HOME/bin:\$PATH\")"
 fi
-echo "  3. Edit: ~/.claude/.env        ← add your personal API keys"
-echo "  4. Connect integrations:       https://claude.ai/settings/integrations"
+if command -v claude-settings &>/dev/null; then
+  echo "  3. Run: claude-settings        ← sync MCP servers + hooks without full re-install"
+else
+  echo "  3. Sync settings:              bash ~/.claude/fsp-stack/scripts/download-settings.sh"
+fi
+echo "  4. Edit: ~/.claude/.env        ← add your personal API keys"
+echo "  5. Connect integrations:       https://claude.ai/settings/integrations"
 echo ""
