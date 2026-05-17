@@ -258,6 +258,46 @@ else
   echo -e "${YELLOW}⚠ CLAUDE.md already exists — skipped${NC}"
 fi
 
+# 7b. Apply FSP baseline permissions to settings.json (merge — never removes existing entries)
+SETTINGS_TEMPLATE="${STACK_DIR}/config/settings.json.template"
+SETTINGS="${CLAUDE_DIR}/settings.json"
+if [ -f "${SETTINGS_TEMPLATE}" ]; then
+  if [ -L "${SETTINGS}" ]; then
+    echo -e "${YELLOW}⚠ settings.json is a symlink — skipping permissions template${NC}"
+  else
+    SETTINGS_TEMPLATE="${SETTINGS_TEMPLATE}" SETTINGS="${SETTINGS}" python3 << 'PYEOF'
+import json, sys, os
+src = os.environ["SETTINGS_TEMPLATE"]
+dst = os.environ["SETTINGS"]
+with open(src) as f:
+    tmpl = json.load(f)
+tmpl.pop("__comment", None)
+tmpl_allow = tmpl.get("permissions", {}).get("allow", [])
+try:
+    with open(dst) as f:
+        existing = json.load(f)
+except FileNotFoundError:
+    existing = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {dst} has invalid JSON ({e}). Fix manually.")
+existing_allow = existing.get("permissions", {}).get("allow", [])
+new_perms = [a for a in tmpl_allow if a not in existing_allow]
+if new_perms:
+    merged = list(dict.fromkeys(existing_allow + new_perms))
+    existing.setdefault("permissions", {})["allow"] = merged
+    with open(dst, "w") as f:
+        json.dump(existing, f, indent=2)
+    os.chmod(dst, 0o600)
+    print(f"  Added {len(new_perms)} FSP permission(s)")
+else:
+    print("  Permissions already up to date")
+PYEOF
+    echo -e "${GREEN}✓ settings.json permissions updated${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠ settings.json.template missing in repo — skipped${NC}"
+fi
+
 # 8. Set up .env for personal API keys
 if [ ! -f "${CLAUDE_DIR}/.env" ]; then
   if [ -f "${STACK_DIR}/config/.env.template" ]; then
