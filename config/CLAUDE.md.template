@@ -79,7 +79,25 @@ research, communications, and session activity are stored there and queryable by
 The brain is your first source of truth — not an afterthought. Never start client work
 cold when there may be existing context.
 
-## 8. Personalise this file
+## 8. Recommended agentic tooling
+
+The following open-source tools extend Claude Code capabilities for the team:
+
+### Ruflo — Multi-agent orchestration
+**Repo:** `ruvnet/ruflo`
+Turns Claude Code into a coordinated multi-agent system. Key features: orchestration layer, shared memory, and federation across machines. Use when tasks benefit from parallel agent work, RAG-assisted tooling, or when you need agents to share context and reuse prior solutions.
+
+### agentmemory — Persistent session memory
+**Repo:** `rohitg00/agentmemory`
+Silently captures, compresses, and injects your workflow history into Claude on every session start. Integrates via hooks, MCP, or REST API. All agents share the same memory server. Install once and Claude stops asking you to re-explain your project architecture each session.
+
+### CodeGraph — Semantic codebase knowledge graph
+**Repo:** `colbymchenry/codegraph`
+Pre-builds a semantic graph of the entire codebase so Claude queries relationships directly instead of scanning files one by one. Reduces tool calls by ~92% on large repos. Supports 19 languages and 13 frameworks. Run after cloning any large project before starting exploration or refactoring work.
+
+---
+
+## 9. Personalise this file
 
 Add your own rules below this line. They will not be overwritten by `claude-update`.
 `claude-update` only updates `~/.claude/skills/` — your CLAUDE.md is yours.
