@@ -59,6 +59,44 @@ fi
 
 mkdir -p "${HOOKS_DIR}"
 
+# ── Permissions (merge FSP baseline allow-list into settings.json) ────────────
+echo ""
+bold "Permissions"
+
+PERMS_TEMPLATE="${STACK_DIR}/config/settings.json.template"
+if [ -f "${PERMS_TEMPLATE}" ]; then
+  PERMS_TEMPLATE="${PERMS_TEMPLATE}" python3 - "${SETTINGS}" << 'PYEOF'
+import json, sys, os
+src = os.environ["PERMS_TEMPLATE"]
+dst = sys.argv[1]
+with open(src) as f:
+    tmpl = json.load(f)
+tmpl.pop("__comment", None)
+tmpl_allow = tmpl.get("permissions", {}).get("allow", [])
+try:
+    with open(dst) as f:
+        existing = json.load(f)
+except FileNotFoundError:
+    existing = {}
+except json.JSONDecodeError as e:
+    sys.exit(f"Error: {dst} has invalid JSON ({e}). Fix manually.")
+existing_allow = existing.get("permissions", {}).get("allow", [])
+new_perms = [a for a in tmpl_allow if a not in existing_allow]
+if new_perms:
+    merged = list(dict.fromkeys(existing_allow + new_perms))
+    existing.setdefault("permissions", {})["allow"] = merged
+    with open(dst, "w") as f:
+        json.dump(existing, f, indent=2)
+    os.chmod(dst, 0o600)
+    print(f"  Added {len(new_perms)} permission(s) from template")
+else:
+    print("  Already up to date")
+PYEOF
+  ok "permissions"
+else
+  warn "settings.json.template missing from stack — permissions skipped"
+fi
+
 # ── MCP servers (claude mcp add — idempotent) ─────────────────────────────────
 echo ""
 bold "MCPs"
