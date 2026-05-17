@@ -17,29 +17,47 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+_CONNECT_TIMEOUT = 10  # seconds to wait for the MCP server to start and initialize
+
 
 async def discover(command: str, args: list[str]):
     server_params = StdioServerParameters(command=command, args=args, env=None)
 
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    try:
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                try:
+                    await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
+                except asyncio.TimeoutError:
+                    print(
+                        json.dumps({"error": "server_unavailable", "reason": "initialize timed out",
+                                    "server": command}),
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
 
-            tools = await session.list_tools()
-            print(f"Found {len(tools.tools)} tools:\n")
+                tools = await session.list_tools()
+                print(f"Found {len(tools.tools)} tools:\n")
 
-            for tool in tools.tools:
-                print(f"  {tool.name}")
-                if tool.description:
-                    print(f"    {tool.description[:100]}")
-                if tool.inputSchema:
-                    props = tool.inputSchema.get("properties", {})
-                    required = tool.inputSchema.get("required", [])
-                    for name, info in props.items():
-                        req = " *" if name in required else ""
-                        desc = info.get("description", "")
-                        print(f"    - {name}: {info.get('type', 'any')}{req}  {desc[:60]}")
-                print()
+                for tool in tools.tools:
+                    print(f"  {tool.name}")
+                    if tool.description:
+                        print(f"    {tool.description[:100]}")
+                    if tool.inputSchema:
+                        props = tool.inputSchema.get("properties", {})
+                        required = tool.inputSchema.get("required", [])
+                        for name, info in props.items():
+                            req = " *" if name in required else ""
+                            desc = info.get("description", "")
+                            print(f"    - {name}: {info.get('type', 'any')}{req}  {desc[:60]}")
+                    print()
+
+    except Exception as exc:
+        print(
+            json.dumps({"error": "server_unavailable", "reason": str(exc), "server": command}),
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def main():

@@ -137,6 +137,68 @@ shopt -u nullglob
 mv "${MANIFEST_TMP}" "${MANIFEST}"
 echo -e "${GREEN}✓ ${SKILL_COUNT} skills installed/updated${NC}"
 
+# 4b. Build tools manifest — index all installed FSP skills, flag duplicate trigger phrases
+TOOLS_MANIFEST="${CLAUDE_DIR}/.fsp-tools-manifest.json"
+python3 - "${SKILLS_DIR}" "${TOOLS_MANIFEST}" << 'PYEOF'
+import json, os, re, sys
+from pathlib import Path
+
+skills_dir = Path(sys.argv[1])
+out_path   = Path(sys.argv[2])
+
+if out_path.is_symlink():
+    sys.exit(f"Error: {out_path} is a symlink — aborting")
+
+skills = []
+trigger_index = {}  # trigger_phrase -> [skill_name, ...]
+
+for skill_dir in sorted(skills_dir.iterdir()):
+    if not skill_dir.is_dir() or skill_dir.is_symlink():
+        continue
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        continue
+    text = skill_md.read_text(errors="replace")
+
+    name_m = re.search(r'^name:\s*(.+)', text, re.MULTILINE)
+    desc_m = re.search(r'^description:\s*(.+)', text, re.MULTILINE)
+    trig_m = re.search(r'^triggers:\s*(\[.+?\])', text, re.MULTILINE | re.DOTALL)
+
+    name     = name_m.group(1).strip().strip('"') if name_m else skill_dir.name
+    desc     = desc_m.group(1).strip().strip('"')[:200] if desc_m else ""
+    triggers = []
+    if trig_m:
+        try:
+            triggers = json.loads(trig_m.group(1))
+        except Exception:
+            pass
+
+    for t in triggers:
+        trigger_index.setdefault(t, []).append(name)
+
+    skills.append({"name": name, "dir": skill_dir.name, "description": desc,
+                   "triggers": triggers})
+
+duplicates = {t: names for t, names in trigger_index.items() if len(names) > 1}
+
+manifest = {
+    "generated_at": __import__('datetime').datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "skill_count": len(skills),
+    "duplicate_triggers": duplicates,
+    "skills": skills,
+}
+
+out_path.write_text(json.dumps(manifest, indent=2))
+os.chmod(out_path, 0o600)
+
+dup_count = len(duplicates)
+if dup_count:
+    print(f"  ⚠ {dup_count} duplicate trigger phrase(s) — see {out_path}")
+    for t, names in list(duplicates.items())[:5]:
+        print(f"    '{t}': {', '.join(names)}")
+PYEOF
+echo -e "${GREEN}✓ Tools manifest written to ${TOOLS_MANIFEST}${NC}"
+
 # 5. Install plugins (exit-code based — avoids false positives from output string matching)
 PLUGIN_ERRORS=0
 for plugin in "everything-claude-code@1.10.0" "openai-codex@1.0.4" "ijfw@1.0.0"; do
