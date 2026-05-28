@@ -121,6 +121,27 @@ Takes about 30 seconds. Your personal settings are never touched.
 
 ---
 
+## Slack Troubleshooting
+
+If Claude says it can't read or post to Slack, the OAuth connection has likely expired. This is the most common issue and takes 2 minutes to fix.
+
+**How to reconnect:**
+1. Go to **[claude.ai/settings/integrations](https://claude.ai/settings/integrations)**
+2. Find **Slack** in the list
+3. Click **Disconnect**, wait 5 seconds
+4. Click **Connect** again and sign into the FSP Slack workspace
+5. Test it: open Claude Code and ask "What channels am I in on Slack?"
+
+**Still broken?**
+- Try signing out of claude.ai completely and back in, then reconnect Slack
+- Check that you're connecting to the **FSP workspace** (not a personal one)
+- If Claude Code is running in the browser (claude.ai/code), close and reopen the session after reconnecting — remote sessions don't pick up new credentials automatically
+- Slack Mark or Jordan with a screenshot of the error
+
+**Note:** The `SLACK_BOT_TOKEN` in your `~/.claude/.env` file is a separate, optional setting used by some automations. The main Slack connection for Claude Code always goes through claude.ai/settings/integrations.
+
+---
+
 ## Need Help?
 
 Slack Mark or Jordan. Include a screenshot of your Terminal if something went wrong.
